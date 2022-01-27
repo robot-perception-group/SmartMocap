@@ -1,0 +1,32 @@
+data_datapath: "/home/nsaini/Desktop/Human3.6m/"
+data_name: "h36m"
+data_seq_len: 25
+data_kp_thres: 100
+
+model_feedfwd_dim: 1024
+model_num_enc_layers: 3
+model_zspace: motion_vae
+model_num_cams: 4
+model_use_pe: True
+model_vposer_path: "/ps/scratch/common/vposer/V02_05"
+model_smplx_neutral_path: "/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz"
+model_mvae_mean_std_path: "/home/nsaini/Datasets/AMASS_humor_processed/amass_humor_all_mean_std.npz"
+
+train_logdir: "/is/ps3/nsaini/projects/mcms/mcms_logs"
+train_name: "test"
+train_PL_GLOBAL_SEED: null
+train_train_reg_only: False
+train_max_epochs: 200
+train_num_gpus: 1
+train_check_val_every_n_epoch: 10
+train_pretrained_checkpoint: null
+train_lr: 0.00001
+train_batch_size: 1
+train_val_batch_size: 1
+train_num_workers: 20
+train_loss_2d_weight: 1
+train_loss_z_weight: 5
+train_loss_cams_weight: 100
+train_loss_betas_weight: 10
+train_shuffle_dset: True
+train_motion_vae_yaml_path: "/is/ps3/nsaini/projects/neural-motion-graph/nmg_logs/conv_nmg_vae_211221-193320/nmg_logs/conv_nmg_vae_2021_12_15/train_nmg_fea95_00004_4_kl_annealing_cycle_epochs=10,rec_pose_weight=5_2021-12-16_03-19-39/checkpoints/epoch=869-step=275789.ckpt"
