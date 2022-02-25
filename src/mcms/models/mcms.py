@@ -13,7 +13,7 @@ from pytorch3d.transforms import rotation_conversions as p3d_rt
 from ..utils.geometry import batch_rodrigues, perspective_projection, estimate_translation, rot6d_to_rotmat
 from argparse import ArgumentParser
 from torch.utils.data import DataLoader
-from ..utils.utils import nmg2smpl 
+from ..utils.utils import nmg2smpl, smpl2nmg 
 from ..utils.geometry import perspective_projection
 from ..utils.renderer import Renderer
 from . import backbone
@@ -45,7 +45,7 @@ class mcms(pl.LightningModule):
         elif hparams["model_zspace"].lower() == "motion_vae":
             npose = 1024
             dummy_zeros = 2
-        elif hparams["model_zspace"].lower() == "smplx":
+        elif hparams["model_zspace"].lower() == "smpl":
             npose = 21*6    
             dummy_zeros = 4         # four dummy zeros for transformer layers
         else:
@@ -76,7 +76,7 @@ class mcms(pl.LightningModule):
         # init params
         mean_params = np.load("/is/ps3/nsaini/projects/trcopenet/src/trcopenet/data/smpl_mean_params.npz")
         if hparams["model_zspace"].lower() == "motion_vae":
-            init_orient = torch.tensor([1,0,0,0,1,0]).float().unsqueeze(0)
+            init_orient = p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(torch.tensor([90,0,0]).unsqueeze(0).float()))
             init_pose = torch.zeros(1024).unsqueeze(0)
             init_shape = torch.from_numpy(mean_params['shape'][:].astype('float32')).unsqueeze(0)
             init_position = torch.tensor([0,0,5]).float().unsqueeze(0)
@@ -95,24 +95,25 @@ class mcms(pl.LightningModule):
         self.register_buffer('init_position', init_position)
         self.register_buffer('init_shape', init_shape)
 
-        # vposer and smplx
+        self.register_buffer("j_regr",torch.from_numpy(np.load(hparams["train_joint_regressor"])).float().unsqueeze(0))
+
+        # vposer and smpl
         if hparams["model_zspace"].lower() == "vposer":
             self.vp_model = load_model(hparams["model_vposer_path"], model_code=VPoser,remove_words_in_model_weights="vp_model.")[0]
             self.vp_model.eval()
             for p in self.vp_model.parameters():
                 p.requires_grad = False
         if hparams["model_zspace"].lower() == "motion_vae":
-            nmg_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_yaml_path"].split("/")[:-2])+"/hparams.yaml"))
-            self.mvae_model = nmg.nmg(nmg_hparams)
-            self.mvae_model.load_from_checkpoint(hparams["train_motion_vae_yaml_path"])
+            nmg_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
+            self.mvae_model = nmg.nmg.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],nmg_hparams)
             mean_std = np.load(self.hparams["model_mvae_mean_std_path"])
             self.register_buffer("mvae_mean", torch.from_numpy(mean_std["mean"]).float())
             self.register_buffer("mvae_std", torch.from_numpy(mean_std["std"]).float())
             self.mvae_model.freeze()
 
-        self.smplx = BodyModel(bm_fname=hparams["model_smplx_neutral_path"])
-        self.smplx.eval()
-        for p in self.smplx.parameters():
+        self.smpl = BodyModel(bm_fname=hparams["model_smpl_neutral_path"])
+        self.smpl.eval()
+        for p in self.smpl.parameters():
             p.requires_grad = False
 
         
@@ -121,7 +122,7 @@ class mcms(pl.LightningModule):
         # # 
         # if hparams["data"].lower() == "agora_unreal_4view":
         #     self.focal_length = [1475,1475] 
-        #     self.renderer = Renderer(focal_length=self.focal_length, img_res=[1920,1080], faces=self.smplx.f.detach().cpu().numpy())
+        #     self.renderer = Renderer(focal_length=self.focal_length, img_res=[1920,1080], faces=self.smpl.f.detach().cpu().numpy())
         # elif hparams["data"].lower() == "h36m":
         #     import ipdb;ipdb.set_trace()
 
@@ -150,7 +151,7 @@ class mcms(pl.LightningModule):
             dummy_zeros = 2         # two dummy zeros for transformer layers
         elif self.hparams["model_zspace"].lower() == "motion_vae":
             dummy_zeros = 2
-        elif self.hparams["model_zspace"].lower() == "smplx":  
+        elif self.hparams["model_zspace"].lower() == "smpl":  
             dummy_zeros = 4         # four dummy zeros for transformer layers
         else:
             import ipdb;ipdb.set_trace()
@@ -174,11 +175,13 @@ class mcms(pl.LightningModule):
             # motion Z
             pred_motion_z_interm = init_theta + self.decpose(interm_out)
             pred_motion_z = self.decpose_pool(pred_motion_z_interm.reshape(batch_size,num_cams*pred_motion_z_interm.shape[-2]*pred_motion_z_interm.shape[-1]))
+            
             # Motion decoder forward
             pred_pose = self.mvae_model.decode(pred_motion_z)
+            # Normalization
             pred_pose_unnorm = pred_pose*self.mvae_std + self.mvae_mean
             # nmg representation to smpl
-            pred_pose_smpl = nmg2smpl(pred_pose_unnorm.reshape(batch_size*seq_size,22,9),self.smplx).reshape(batch_size,seq_size,-1)
+            pred_pose_smpl = nmg2smpl(pred_pose_unnorm.reshape(batch_size*seq_size,22,9),self.smpl).reshape(batch_size,seq_size,-1)
             
         return cam_poses, pred_pose_smpl, pred_betas, pred_motion_z
 
@@ -205,6 +208,8 @@ class mcms(pl.LightningModule):
         bbs = batch["bbs"]
         j2ds = batch["j2d"]
         cam_intr = batch["cam_intr"]
+        moshed_gt = batch["moshpose"]
+        mosh_available = batch["mosh_available"]
         batch_size = j2ds.shape[0]
         num_cams = j2ds.shape[1]
         seq_size = j2ds.shape[2]
@@ -215,30 +220,35 @@ class mcms(pl.LightningModule):
         ############## Sanity check ###################
         # cam_poses = torch.cat([self.init_position.expand(batch_size,num_cams,seq_size, -1), 
         #                 self.init_orient.expand(batch_size,num_cams,seq_size,-1)],3)
-        # pred_pose = self.mvae_model.decode(2*torch.rand(1,1024).type_as(pred_motion_z))
+        # pred_pose = self.mvae_model.decode(2*torch.randn(1,1024).type_as(pred_motion_z))
         # pred_pose_unnorm = pred_pose*self.mvae_std + self.mvae_mean
-        # pred_pose_smpl = nmg2smpl(pred_pose_unnorm.reshape(batch_size*seq_size,22,9),self.smplx).reshape(batch_size,seq_size,-1)
+        # pred_pose_smpl = nmg2smpl(pred_pose_unnorm.reshape(batch_size*seq_size,22,9),self.smpl).reshape(batch_size,seq_size,-1)
         # pred_betas = self.init_shape.expand(batch_size,-1)
+        # pred_pose_smpl[:,:,6:] = moshed_gt
         ###############################################
-
+        
         pred_pose_smpl_reshaped = pred_pose_smpl.reshape(-1, pred_pose_smpl.shape[-1])
-
+        
         # SMPL forward
-        smpl_out = self.smplx.forward(root_orient = pred_pose_smpl_reshaped[:,3:6],
+        smpl_out = self.smpl.forward(root_orient = pred_pose_smpl_reshaped[:,3:6],
                             pose_body = pred_pose_smpl_reshaped[:,6:],
                             trans = pred_pose_smpl_reshaped[:,:3],
                             betas = pred_betas.unsqueeze(1).expand(-1,seq_size,-1).reshape(-1,pred_betas.shape[-1]))
+        
+        # j3ds = torch.einsum("ij,bjk->bik",self.j_regr.squeeze(0),smpl_out.v)
         j3ds = smpl_out.Jtr[:,:22,:]
-
+        
+        
         # camera projection
         proj_j3ds = torch.stack([perspective_projection(j3ds,
                         p3d_rt.rotation_6d_to_matrix(cam_poses[:,i,:,3:].reshape(-1,6)),
                         cam_poses[:,i,:,:3].reshape(-1,3),
                         cam_intr[:,i].unsqueeze(1).expand(-1,seq_size,-1,-1).reshape(-1,3,3).float()).reshape(batch_size,seq_size,-1,2) for i in range(num_cams)]).permute(1,0,2,3,4)
         
-        # reprojection loss
-        loss_2d = (j2ds[:,:,:,:22,2]*(((proj_j3ds - j2ds[:,:,:,:22,:2])**2).sum(dim=4))).mean()
 
+        # reprojection loss
+        loss_2d = (j2ds[:,:,:,:22,2]*(((proj_j3ds[:,:,:,:22] - j2ds[:,:,:,:22,:2])**2).sum(dim=4))).mean()
+        
         # latent space regularization
         loss_z = (pred_motion_z*pred_motion_z).mean()
 
@@ -248,16 +258,29 @@ class mcms(pl.LightningModule):
         # shape regularization loss
         loss_betas = (pred_betas*pred_betas).mean()
 
+        # Articulated pose loss using moshed GT
+        try:
+            if mosh_available.any():
+                theta_loss = ((p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(pred_pose_smpl[mosh_available,:,6:].reshape(-1,3))) - 
+                            p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(moshed_gt[mosh_available].reshape(-1,3))))**2).mean()
+            else:
+                theta_loss = torch.sum(torch.zeros(1).type_as(loss_2d))
+        except:
+            theta_loss = torch.sum(torch.zeros(1).type_as(loss_2d))
+            print("Mosh not available")
+            
         # total loss
         loss = self.hparams["train_loss_2d_weight"] * loss_2d + \
                 self.hparams["train_loss_z_weight"] * loss_z + \
                     self.hparams["train_loss_cams_weight"] * loss_cams + \
-                        self.hparams["train_loss_betas_weight"] * loss_betas
+                        self.hparams["train_loss_betas_weight"] * loss_betas +\
+                            self.hparams["train_loss_theta_weight"] * theta_loss
 
         losses = {"loss_2d": loss_2d.detach().cpu().numpy(),
                     "loss_z": loss_z.detach().cpu().numpy(),
                     "loss_cams": loss_cams.detach().cpu().numpy(),
-                    "loss_betas": loss_betas.detach().cpu().numpy()}
+                    "loss_betas": loss_betas.detach().cpu().numpy(),
+                    "loss_theta": theta_loss.detach().cpu().numpy(),}
 
         output = {"smpl_out_v": smpl_out.v.detach(),
                     "pred_pose": pred_pose_smpl_reshaped.detach(),
@@ -300,8 +323,8 @@ class mcms(pl.LightningModule):
         if not os.path.exists(ospj(self.logger.log_dir,"viz_gifs")):
             os.makedirs(ospj(self.logger.log_dir,"viz_gifs"))
 
-        np.save(ospj(self.logger.log_dir,"viz_gifs",str(self.current_epoch)+"_train"),
-                outputs[idx]["output"]["smpl_out_v"].detach().cpu().numpy())
+        # np.save(ospj(self.logger.log_dir,"viz_gifs",str(self.current_epoch)+"_train"),
+        #         outputs[idx]["output"]["smpl_out_v"].detach().cpu().numpy())
         
         imageio.mimsave(ospj(self.logger.log_dir,"viz_gifs",str(self.current_epoch)+"_train.gif"),
                     [make_grid(torch.from_numpy(viz_images[:,i]).permute(0,3,1,2),nrow=viz_images.shape[0]).permute(1,2,0).cpu().numpy()[::5,::5] for i in range(viz_images.shape[1])])
@@ -362,7 +385,7 @@ class mcms(pl.LightningModule):
                                     output["output"]["cam_poses"][idx,cam,s,:3].detach().cpu().numpy(),
                                     p3d_rt.rotation_6d_to_matrix(output["output"]["cam_poses"][idx,cam,s,3:].unsqueeze(0)).detach().cpu().numpy(),
                                     im,intr=output["output"]["cam_intr"][idx,cam].detach().cpu().numpy(),
-                                    faces=self.smplx.f.detach().cpu().numpy())
+                                    faces=self.smpl.f.detach().cpu().numpy())
 
         return rend_ims
         

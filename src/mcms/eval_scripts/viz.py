@@ -14,9 +14,9 @@ C.scene.collection.objects.link(empty)
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/test/v000_/checkpoints/epoch=189-step=5699.npy")
+data = np.load("/is/ps3/nsaini/projects/mcms/temp.npy")
 
-bm = BodyModel("/is/ps3/nsaini/projects/copenet/src/copenet/data/smplx/models/smplx/SMPLX_NEUTRAL.npz")
+bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 
 smpl_out = {"0":data}
 

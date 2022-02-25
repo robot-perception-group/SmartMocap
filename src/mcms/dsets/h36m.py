@@ -18,7 +18,9 @@ from ..utils.utils import resize_with_pad
 # remove nose as head
 op_map2smpl = np.array([8,12,9,-1,13,10,-1,14,11,-1,19,22,1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
 al_map2smpl = np.array([-1,11,8,-1,12,9,-1,13,10,-1,-1,-1,1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
-# smpl_map2op = np.array([])
+smpl_map2op = np.array([12, 17, 19, 21, 16, 18, 20, 0, 2, 5, 8, 1, 4,
+                             7],
+                            dtype=np.int32) # Nose replaced with head, but weight should be 0
 
 class h36m(Dataset):
     def __init__(self,hparams,subjects=["S1","S5","S6","S7","S8"]):
@@ -46,8 +48,10 @@ class h36m(Dataset):
         data_lengths = np.stack([dl0,dl1,dl2,dl3])
         self.data_lengths = np.min(data_lengths,axis=0)
 
+        ################### factor of 2 to account for frame rate ###############################
         # sequence length
         self.seq_len = 2 * hparams["data_seq_len"]
+        ################################################################################
 
         # get camera parameters
         self.cam_extr = {"c0":{},"c1":{},"c2":{},"c3":{}}
@@ -116,7 +120,7 @@ class h36m(Dataset):
                 opose[np.sqrt((opose[:,0]-apose[:,0])**2 + (opose[:,1]-apose[:,1])**2) > hparams["data_kp_thres"],2] = 0
                 apose[np.sqrt((opose[:,0]-apose[:,0])**2 + (opose[:,1]-apose[:,1])**2) > hparams["data_kp_thres"],2] = 0
                 self.opose_res[cam].append(np.reshape(opose,[-1,24,3]))
-                self.apose_res[cam].append(np.reshape(apose,[-1,24,3]))
+                # self.apose_res[cam].append(np.reshape(apose,[-1,24,3]))
 
         # image normalization
         self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -128,7 +132,7 @@ class h36m(Dataset):
     def __getitem__(self, idx):
 
         ########## overfit mode #########
-        idx= 0 
+        idx= np.random.choice([10, 18, 28])
         #################################
 
         # get full sequence length
@@ -138,7 +142,7 @@ class h36m(Dataset):
         seq_start = np.random.randint(1,full_seq_len-self.seq_len-1)
 
         ############### overfit mode ###################
-        seq_start = 1
+        seq_start = 100
         ###############################################
 
         # get full images paths
@@ -160,9 +164,36 @@ class h36m(Dataset):
         # get 2d keypoints
         j2d = torch.stack([torch.from_numpy(self.opose_res[cam][idx][seq_start:(seq_start + self.seq_len)]).float() for cam in ["c0","c1","c2","c3"]])
 
+        # get mosh params
+        datapath = "/".join(".".join(self.seq_dirs["c1"][idx].split(".")[:-1]).split("/")[:-3])
+        exp = self.seq_dirs["c1"][idx].split("/")[-1].split(".")[0]
+        moshf_path = os.path.join(datapath,'mosh',sub,
+                            exp.replace('_',' ')+'_poses'+'.pkl')
+        try:
+            moshf = pkl.load(open(moshf_path,'rb'),encoding='latin1')
+            mosh_fps_factor = int(moshf["mocap_framerate"]/50)
+
+            moshbetas = torch.from_numpy(moshf['shape_est_betas'][:10]).float().unsqueeze(0)
+            moshtrans = torch.from_numpy(moshf['pose_est_trans'][mosh_fps_factor*seq_start:(mosh_fps_factor*seq_start + mosh_fps_factor*self.seq_len),:3]).float()
+            moshorient = torch.from_numpy(moshf['pose_est_poses'][mosh_fps_factor*seq_start:(mosh_fps_factor*seq_start + mosh_fps_factor*self.seq_len),:3]).float()
+            moshpose = torch.from_numpy(moshf['pose_est_poses'][mosh_fps_factor*seq_start:(mosh_fps_factor*seq_start + mosh_fps_factor*self.seq_len),3:66]).float()
+            mosh_available = True
+        except:
+            print(moshf_path," doesn't exist!!!")
+            mosh_available = False
+            moshtrans = False
+            moshorient = False
+            moshpose = False
+            moshbetas = False
+
         ############### half the frames to get 25 FPS ########################
         full_img_pth = full_img_pth[:,::2]
         j2d = j2d[:,::2]
+
+        if mosh_available:
+            moshtrans = moshtrans[::mosh_fps_factor*2]  # factor of 8 since mocap framerate is 200
+            moshorient = moshorient[::mosh_fps_factor*2]    # factor of 8 since mocap framerate is 200
+            moshpose = moshpose[::mosh_fps_factor*2]    # factor of 8 since mocap framerate is 200
 
         # load, crop and scale
         images = torch.zeros(full_img_pth.shape[0],full_img_pth.shape[1],3,224,224).float()
@@ -203,7 +234,8 @@ class h36m(Dataset):
         full_img_pth_list = [list(x) for x in list(full_img_pth)]
         
 
-        return {"full_im_paths":full_img_pth_list, "images":images, "bbs":bbs, "j2d":j2d, "cam_intr":cam_intr}
+        return {"full_im_paths":full_img_pth_list, "images":images, "bbs":bbs, "j2d":j2d, "cam_intr":cam_intr,
+                "moshbetas":moshbetas, "moshorient":moshorient, "moshtrans":moshtrans, "moshpose":moshpose, "mosh_available":mosh_available}
 
 
 

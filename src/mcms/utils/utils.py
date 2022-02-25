@@ -50,6 +50,28 @@ def transform_smpl(trans_mat,smplvertices=None,smpljoints=None, orientation=None
         orient = None    
     return verts, joints, orient, trans
 
+def rottrans2transf(rotmat,trans):
+    batch_size = rotmat.shape[0]
+    assert rotmat.shape[0]==trans.shape[0], "rotmat and trans should have same batch size"
+    return torch.cat([torch.cat([rotmat,trans.unsqueeze(2)],dim=2),torch.tensor([0,0,0,1]).unsqueeze(0).unsqueeze(0).float().repeat(batch_size,1,1).to(rotmat.device)],dim=1)
+
+def smpl2nmg(poses,bm):
+    joints = bm.forward(root_orient=poses[:,3:6],pose_body=poses[:,6:]).Jtr
+    joint_pos_wrt_root = joints[:,1:] - joints[:,0:1]
+    transfs = torch.eye(4).unsqueeze(0).unsqueeze(0).repeat(poses.shape[0],22,1,1).to(poses.device)
+    pose_angles = poses[:,3:].view(poses.shape[0],-1,3)
+
+    transfs[:,0] = rottrans2transf(p3dt.axis_angle_to_matrix(pose_angles[:,0]),joints[:,0])
+    for j in range(1,22):
+        transfs[:,j] = rottrans2transf(torch.matmul(transfs[:,bm.kintree_table[0,j],:3,:3],p3dt.axis_angle_to_matrix(pose_angles[:,j])),joint_pos_wrt_root[:,j])
+    
+    transfs[:,:,:3,3] += poses[:,:3].unsqueeze(1)
+
+    nmg_transfs = torch.zeros(poses.shape[0],22,9).float().to(poses.device)
+    nmg_transfs[:,:,:6] = p3dt.matrix_to_rotation_6d(transfs[:,:,:3,:3])
+    nmg_transfs[:,:,6:] = transfs[:,:,:3,3]
+
+    return nmg_transfs
 
 def nmg2smpl(nmg_transfs,bm):
     transfs = torch.zeros(nmg_transfs.shape[0],nmg_transfs.shape[1],4,4).float().to(nmg_transfs.device)

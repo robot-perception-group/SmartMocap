@@ -26,10 +26,10 @@ search_params_keys = [x for x in hparams if type(hparams[x]) is list]
 search_params_vals = list(itertools.product(*[hparams[x] for x in hparams if type(hparams[x]) is list]))
 
 for i,k in enumerate(search_params_keys):
-    hparams[k] = search_params_vals[idx_num][i]
+    hparams[k] = search_params_vals[int(idx_num)][i]
 
 
-version = "v{:03d}_".format(int(idx_num)) + ",".join([str(search_params_keys[i])+"="+str(search_params_vals[idx_num][i]) for i in range(len(search_params_keys))])
+version = "v{:03d}_".format(int(idx_num)) + ",".join([str(search_params_keys[i])+"="+str(search_params_vals[int(idx_num)][i]) for i in range(len(search_params_keys))])
 
 
 
