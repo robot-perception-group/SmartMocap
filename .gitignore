@@ -49,6 +49,7 @@ nmg_logs/
 *.html
 *.png
 *.jpg
+*.gif
 
 # numpy files
 *.npy

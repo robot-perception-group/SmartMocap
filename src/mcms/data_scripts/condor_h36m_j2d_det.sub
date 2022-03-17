@@ -1,5 +1,5 @@
 executable = /home/nsaini/miniconda3/envs/nmg/bin/python
-arguments = /is/ps3/nsaini/projects/mcms/src/mcms/scripts/h36m_j2d_det_cluster.py $(Process)
+arguments = /is/ps3/nsaini/projects/mcms/src/mcms/data_scripts/h36m_j2d_det_cluster.py $(Process)
 error = /is/cluster/nsaini/cluster_logs/error.$(Process).err
 output = /is/cluster/nsaini/cluster_logs/output.$(Process).out
 log = /is/cluster/nsaini/cluster_logs/log.$(Process).log
@@ -7,4 +7,4 @@ getenv = True
 request_memory = 32000
 request_cpus = 30
 request_gpus = 1
-queue 840
+queue 360

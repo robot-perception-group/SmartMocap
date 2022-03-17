@@ -1,3 +1,4 @@
+from pyexpat import model
 import pytorch_lightning as pl
 import torch
 import cv2
@@ -21,6 +22,7 @@ from ..dsets import h36m
 from nmg.models import nmg
 import yaml
 import imageio
+from koila import lazy
 import os
 from os.path import join as ospj
 from torchvision.utils import make_grid
@@ -98,11 +100,10 @@ class mcms(pl.LightningModule):
         self.register_buffer("j_regr",torch.from_numpy(np.load(hparams["train_joint_regressor"])).float().unsqueeze(0))
 
         # vposer and smpl
-        if hparams["model_zspace"].lower() == "vposer":
-            self.vp_model = load_model(hparams["model_vposer_path"], model_code=VPoser,remove_words_in_model_weights="vp_model.")[0]
-            self.vp_model.eval()
-            for p in self.vp_model.parameters():
-                p.requires_grad = False
+        self.vp_model = load_model(hparams["model_vposer_path"], model_code=VPoser,remove_words_in_model_weights="vp_model.")[0]
+        self.vp_model.eval()
+        for p in self.vp_model.parameters():
+            p.requires_grad = False
         if hparams["model_zspace"].lower() == "motion_vae":
             nmg_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
             self.mvae_model = nmg.nmg.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],nmg_hparams)
@@ -170,13 +171,14 @@ class mcms(pl.LightningModule):
             cam_poses = torch.cat([init_position, init_orient],3) + self.deccam(interm_out)
             cam_poses[:,:,:,:3] /= trans_scale
             # betas
-            pred_betas_interm = init_shape + self.decshape(interm_out)
-            pred_betas = self.decshape_pool(pred_betas_interm.reshape(batch_size,num_cams*pred_betas_interm.shape[-2]*pred_betas_interm.shape[-1]))
+            pred_betas_interm = self.decshape(interm_out)
+            pred_betas = self.init_shape + self.decshape_pool(pred_betas_interm.reshape(batch_size,num_cams*pred_betas_interm.shape[-2]*pred_betas_interm.shape[-1]))
             # motion Z
-            pred_motion_z_interm = init_theta + self.decpose(interm_out)
-            pred_motion_z = self.decpose_pool(pred_motion_z_interm.reshape(batch_size,num_cams*pred_motion_z_interm.shape[-2]*pred_motion_z_interm.shape[-1]))
+            pred_motion_z_interm = self.decpose(interm_out)
+            pred_motion_z = self.init_pose + self.decpose_pool(pred_motion_z_interm.reshape(batch_size,num_cams*pred_motion_z_interm.shape[-2]*pred_motion_z_interm.shape[-1]))
             
             # Motion decoder forward
+            self.mvae_model.eval()
             pred_pose = self.mvae_model.decode(pred_motion_z)
             # Normalization
             pred_pose_unnorm = pred_pose*self.mvae_std + self.mvae_mean
@@ -213,6 +215,10 @@ class mcms(pl.LightningModule):
         batch_size = j2ds.shape[0]
         num_cams = j2ds.shape[1]
         seq_size = j2ds.shape[2]
+
+        # Koila lazy tensor
+        # (ims,bbs,j2ds,cam_intr,moshed_gt) = lazy(ims,bbs,j2ds,cam_intr,moshed_gt)
+
 
         # Network forward
         cam_poses, pred_pose_smpl, pred_betas, pred_motion_z = self.forward(ims, bbs, trans_scale=0.05)
@@ -268,25 +274,38 @@ class mcms(pl.LightningModule):
         except:
             theta_loss = torch.sum(torch.zeros(1).type_as(loss_2d))
             print("Mosh not available")
-            
+
+        # VPoser loss on the output
+        self.vp_model.eval()
+        vp_sample = self.vp_model.encode(pred_pose_smpl_reshaped[:,6:]).mean
+        loss_vposer = (vp_sample*vp_sample).mean()
+
         # total loss
         loss = self.hparams["train_loss_2d_weight"] * loss_2d + \
                 self.hparams["train_loss_z_weight"] * loss_z + \
                     self.hparams["train_loss_cams_weight"] * loss_cams + \
                         self.hparams["train_loss_betas_weight"] * loss_betas +\
-                            self.hparams["train_loss_theta_weight"] * theta_loss
+                            self.hparams["train_loss_theta_weight"] * theta_loss +\
+                                self.hparams["train_loss_vposer_weight"] * loss_vposer
 
         losses = {"loss_2d": loss_2d.detach().cpu().numpy(),
                     "loss_z": loss_z.detach().cpu().numpy(),
                     "loss_cams": loss_cams.detach().cpu().numpy(),
                     "loss_betas": loss_betas.detach().cpu().numpy(),
-                    "loss_theta": theta_loss.detach().cpu().numpy(),}
+                    "loss_theta": theta_loss.detach().cpu().numpy(),
+                    "loss_vposer": loss_vposer.detach().cpu().numpy()}
 
+        cam_poses_actual = torch.cat([p3d_rt.rotation_6d_to_matrix(cam_poses[:,:,:,3:]),cam_poses[:,:,:,:3].unsqueeze(4)],dim=4)
+        cam_poses_actual = torch.cat([cam_poses_actual,torch.tensor([0,0,0,1]).type_as(cam_poses_actual).repeat(batch_size,num_cams,seq_size,1,1)],dim=3)
+        cam_poses_actual = torch.inverse(cam_poses_actual)
         output = {"smpl_out_v": smpl_out.v.detach(),
                     "pred_pose": pred_pose_smpl_reshaped.detach(),
                     "pred_shape": pred_betas.detach(),
                     "cam_poses": cam_poses.detach(),
-                    "cam_intr": cam_intr}
+                    "cam_trans": cam_poses_actual[:,:,:,:3,3].detach(),
+                    "cam_rots": p3d_rt.matrix_to_quaternion(cam_poses_actual[:,:,:,:3,:3]).detach(),
+                    "cam_intr": cam_intr,
+                    "j2ds": j2ds.detach()}
 
         
         return output, losses, loss
@@ -323,8 +342,11 @@ class mcms(pl.LightningModule):
         if not os.path.exists(ospj(self.logger.log_dir,"viz_gifs")):
             os.makedirs(ospj(self.logger.log_dir,"viz_gifs"))
 
-        # np.save(ospj(self.logger.log_dir,"viz_gifs",str(self.current_epoch)+"_train"),
-        #         outputs[idx]["output"]["smpl_out_v"].detach().cpu().numpy())
+        if self.current_epoch % self.hparams["train_check_val_every_n_epoch"] == 0:
+            np.savez(ospj(self.logger.log_dir,"viz_gifs",str(self.current_epoch)+"_train"),
+                verts=outputs[idx]["output"]["smpl_out_v"].detach().cpu().numpy(),
+                cam_trans=outputs[idx]["output"]["cam_trans"].detach().cpu().numpy(),
+                cam_rots=outputs[idx]["output"]["cam_rots"].detach().cpu().numpy())
         
         imageio.mimsave(ospj(self.logger.log_dir,"viz_gifs",str(self.current_epoch)+"_train.gif"),
                     [make_grid(torch.from_numpy(viz_images[:,i]).permute(0,3,1,2),nrow=viz_images.shape[0]).permute(1,2,0).cpu().numpy()[::5,::5] for i in range(viz_images.shape[1])])
@@ -346,8 +368,10 @@ class mcms(pl.LightningModule):
         if not os.path.exists(ospj(self.logger.log_dir,"viz_gifs")):
             os.makedirs(ospj(self.logger.log_dir,"viz_gifs"))
 
-        np.save(ospj(self.logger.log_dir,"viz_gifs",str(self.current_epoch)+"_val"),
-                outputs[idx]["output"]["smpl_out_v"].detach().cpu().numpy())
+        np.savez(ospj(self.logger.log_dir,"viz_gifs",str(self.current_epoch)+"_val"),
+             verts=outputs[idx]["output"]["smpl_out_v"].detach().cpu().numpy(),
+             cam_trans=outputs[idx]["output"]["cam_trans"].detach().cpu().numpy(),
+             cam_rots=outputs[idx]["output"]["cam_rots"].detach().cpu().numpy())
         
         imageio.mimsave(ospj(self.logger.log_dir,"viz_gifs",str(self.current_epoch)+"_val.gif"),
                     [make_grid(torch.from_numpy(viz_images[:,i]).permute(0,3,1,2),nrow=viz_images.shape[0]).permute(1,2,0).cpu().numpy()[::5,::5] for i in range(viz_images.shape[1])])
@@ -400,9 +424,9 @@ class mcms(pl.LightningModule):
             for p in self.backbone.parameters():
                 p.requires_grad = False
             
-        if self.hparams["model_zspace"].lower() == "vposer":
-            for p in self.vp_model.parameters():
-                p.requires_grad = False
+        for p in self.vp_model.parameters():
+            p.requires_grad = False
+
         if self.hparams["model_zspace"].lower() == "motion_vae":
             for p in self.mvae_model.parameters():
                 p.requires_grad = False
@@ -423,7 +447,7 @@ class mcms(pl.LightningModule):
 
     def train_dataloader(self):
         if self.hparams.data_name.lower() == "h36m":
-            train_dset = h36m.h36m(self.hparams,subjects=["S1"])
+            train_dset = h36m.h36m(self.hparams,subjects=["S1","S5"])
         else:
             import ipdb;ipdb.set_trace()
 
@@ -434,7 +458,7 @@ class mcms(pl.LightningModule):
 
     def val_dataloader(self):
         if self.hparams.data_name.lower() == "h36m":
-            val_dset = h36m.h36m(self.hparams,subjects=["S1"])
+            val_dset = h36m.h36m(self.hparams,subjects=["S6"])
         else:
             import ipdb;ipdb.set_trace()
 

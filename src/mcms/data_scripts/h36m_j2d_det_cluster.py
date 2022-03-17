@@ -4,7 +4,7 @@ import subprocess
 import sys
 
 # image dir index to process
-idx = int(sys.argv[1])
+idx = int(sys.argv[1]) + 480
 
 # get list of image directories
 imdirs = sorted(glob.glob("/ps/project/datasets/Human3.6M/images/*/*"))
@@ -14,8 +14,8 @@ outdir = "/is/cluster/nsaini/Datasets/Human3.6m/"
 imdir = imdirs[idx]
 
 
-apose_outdir = os.path.join(outdir,"apose_res",*imdir.split("/")[-2:])
-os.makedirs(apose_outdir,exist_ok=True)
+# apose_outdir = os.path.join(outdir,"apose_res",*imdir.split("/")[-2:])
+# os.makedirs(apose_outdir,exist_ok=True)
 
 
 opose_outdir = os.path.join(outdir,"opose_res",*imdir.split("/")[-2:-1])

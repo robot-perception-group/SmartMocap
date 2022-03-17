@@ -13,10 +13,10 @@ model_smpl_neutral_path: "/home/nsaini/Datasets/smpl_models/smplh/neutral/model.
 model_mvae_mean_std_path: "/home/nsaini/Datasets/AMASS_humor_processed/amass_humor_all_mean_std.npz"
 
 train_logdir: "/is/ps3/nsaini/projects/mcms/mcms_logs"
-train_name: "S1_2022_02_22"
+train_name: "2022_03_07"
 train_PL_GLOBAL_SEED: null
 train_train_reg_only: False
-train_max_epochs: 2000
+train_max_epochs: 10000
 train_num_gpus: 1
 train_check_val_every_n_epoch: 10
 train_pretrained_checkpoint: null
@@ -28,7 +28,8 @@ train_loss_2d_weight: 1
 train_loss_z_weight: 50
 train_loss_cams_weight: 100
 train_loss_betas_weight: 10
-train_loss_theta_weight: 100000
+train_loss_theta_weight: 100
+train_loss_vposer_weight: 0
 train_shuffle_dset: True
 train_motion_vae_ckpt_path: "/is/ps3/nsaini/projects/neural-motion-graph/nmg_logs/conv_nmg_vae_211221-193320/nmg_logs/conv_nmg_vae_2021_12_15/train_nmg_fea95_00004_4_kl_annealing_cycle_epochs=10,rec_pose_weight=5_2021-12-16_03-19-39/checkpoints/epoch=869-step=275789.ckpt"
 train_joint_regressor: "/is/ps3/nsaini/projects/SPIN/data/J_regressor_h36m.npy"

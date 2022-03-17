@@ -129,20 +129,21 @@ class h36m(Dataset):
     def __len__(self):
         return len(self.opose_res["c0"])
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, seq_start=None):
 
         ########## overfit mode #########
-        idx= np.random.choice([10, 18, 28])
+        # idx= [10, 18, 26][idx%3]
         #################################
 
         # get full sequence length
         full_seq_len = self.data_lengths[idx]
 
         # get sequence start
-        seq_start = np.random.randint(1,full_seq_len-self.seq_len-1)
+        if seq_start is None:
+            seq_start = np.random.randint(1,full_seq_len-self.seq_len-1)
 
         ############### overfit mode ###################
-        seq_start = 100
+        # seq_start = 100
         ###############################################
 
         # get full images paths
@@ -163,7 +164,7 @@ class h36m(Dataset):
 
         # get 2d keypoints
         j2d = torch.stack([torch.from_numpy(self.opose_res[cam][idx][seq_start:(seq_start + self.seq_len)]).float() for cam in ["c0","c1","c2","c3"]])
-
+        
         # get mosh params
         datapath = "/".join(".".join(self.seq_dirs["c1"][idx].split(".")[:-1]).split("/")[:-3])
         exp = self.seq_dirs["c1"][idx].split("/")[-1].split(".")[0]
@@ -207,10 +208,11 @@ class h36m(Dataset):
                     import ipdb;ipdb.set_trace()
 
                 # calculate cropping area
-                if j2d[cam,t,:,2].all() == 0:
+                if (j2d[cam,t,:,2]==0).all():
                     crp_scl_image = np.zeros([224,224,3])
                     scl = 0.
                     bb = torch.tensor([0.,0.]).float()
+                    print("No keypoints found in image")
                 else:
                     bb_min = j2d[cam,t,j2d[cam,t,:,2]!=0,:2].min(dim=0).values.int() - torch.randint(50,200,(1,2))
                     bb_min[bb_min<0] = 0
