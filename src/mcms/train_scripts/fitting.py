@@ -26,8 +26,8 @@ import cv2
 batch_size = 1
 seq_len = 25
 loss_2d_weight = 1
-loss_z_weight = 2
-loss_cams_weight = 100
+loss_z_weight = 10
+loss_cams_weight = 10000
 loss_betas_weight = 10
 n_optim_iters = 1000
 lr = 0.01
@@ -74,10 +74,10 @@ with trange(451,ds.data_lengths[seq_no]-50,50) as seq_t:
         seq_len = j2ds.shape[2]
 
         # Camera and SMPL params
-        cam_orient_staticcam = p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(torch.tensor([3.14/2,0,0]).float())).repeat(batch_size,num_cams-1,1,1).requires_grad_(True)
-        cam_position_staticcam = torch.tensor([0,0,5]).float().repeat(batch_size,num_cams-1,1,1).requires_grad_(True)
-        cam_orient_movingcam = p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(torch.tensor([3.14/2,0,0]).float())).repeat(batch_size,1,seq_len,1).requires_grad_(True)
-        cam_position_movingcam = torch.tensor([0,0,5]).float().repeat(batch_size,1,seq_len,1).requires_grad_(True)
+        cam_orient_staticcam = p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(torch.tensor([3.14/2,0,0]).float())).repeat(batch_size,1,1,1).requires_grad_(True)
+        cam_position_staticcam = torch.tensor([0,0,5]).float().repeat(batch_size,1,1,1).requires_grad_(True)
+        cam_orient_movingcam = p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(torch.tensor([3.14/2,0,0]).float())).repeat(batch_size,num_cams-1,seq_len,1).requires_grad_(True)
+        cam_position_movingcam = torch.tensor([0,0,5]).float().repeat(batch_size,num_cams-1,seq_len,1).requires_grad_(True)
         smpl_motion_latent = torch.zeros(1024).unsqueeze(0).requires_grad_(True)
         smpl_shape = torch.zeros(10).unsqueeze(0).requires_grad_(True)
 
@@ -108,8 +108,10 @@ with trange(451,ds.data_lengths[seq_no]-50,50) as seq_t:
                 j3ds = smpl_out.Jtr[:,:22,:]
 
                 # camera extrinsics
-                # cam_orient_seq = cam_orient.unsqueeze(2).repeat(1,1,seq_len,1)
-                # cam_position_seq = cam_position.unsqueeze(2).repeat(1,1,seq_len,1)
+                cam_orient = torch.cat([cam_orient_staticcam.repeat(1,1,seq_len,1),cam_orient_movingcam],dim=1)
+                cam_position = torch.cat([cam_position_staticcam.repeat(1,1,seq_len,1),cam_position_movingcam],dim=1)
+                # cam_orient_seq = cam_orient.repeat(1,1,seq_len,1)
+                # cam_position_seq = cam_position.repeat(1,1,seq_len,1)
                 cam_orient_seq = cam_orient
                 cam_position_seq = cam_position
                 cam_ext = torch.cat([p3d_rt.rotation_6d_to_matrix(cam_orient_seq),cam_position_seq.unsqueeze(4)],dim=4)
@@ -146,7 +148,7 @@ with trange(451,ds.data_lengths[seq_no]-50,50) as seq_t:
 
                 # zero grad optimizer
                 optim.zero_grad()
-
+                
                 # backward
                 loss.backward()
 
@@ -155,7 +157,11 @@ with trange(451,ds.data_lengths[seq_no]-50,50) as seq_t:
 
 
                 # print loss
-                t.set_postfix(loss=loss.item())
+                t.set_postfix({"loss":loss.item(),
+                                "loss_2d":loss_2d.item(),
+                                "loss_z":loss_z.item(),
+                                "loss_cams":loss_cams.item(),
+                                "loss_betas":loss_betas.item()})
 
 
                 # Viz
