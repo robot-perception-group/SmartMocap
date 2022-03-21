@@ -26,8 +26,8 @@ import cv2
 batch_size = 1
 seq_size = 25
 loss_2d_weight = 1
-loss_z_weight = 50
-loss_cams_weight = 100
+loss_z_weight = 2
+loss_cams_weight = 10000
 loss_betas_weight = 10
 n_optim_iters = 1000
 lr = 0.01
@@ -63,7 +63,7 @@ seq_no = 29
 # make dir for seq_no
 os.makedirs("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/test/{:04d}".format(seq_no),exist_ok=True)
 
-with trange(1,ds.data_lengths[seq_no]-50,50) as seq_t:
+with trange(451,ds.data_lengths[seq_no]-50,50) as seq_t:
     for seq_start in seq_t:
         # get batch
         batch = ds.__getitem__(seq_no,seq_start)
@@ -74,8 +74,8 @@ with trange(1,ds.data_lengths[seq_no]-50,50) as seq_t:
         seq_size = j2ds.shape[2]
 
         # Camera and SMPL params
-        cam_orient = p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(torch.tensor([3.14/2,0,0]).float())).repeat(batch_size,num_cams,seq_size,1).requires_grad_(True)
-        cam_position = torch.tensor([0,0,5]).float().repeat(batch_size,num_cams,seq_size,1).requires_grad_(True)
+        cam_orient = p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(torch.tensor([3.14/2,0,0]).float())).repeat(batch_size,num_cams,seq_len,1).requires_grad_(True)
+        cam_position = torch.tensor([0,0,5]).float().repeat(batch_size,num_cams,seq_len,1).requires_grad_(True)
         smpl_motion_latent = torch.zeros(1024).unsqueeze(0).requires_grad_(True)
         smpl_shape = torch.zeros(10).unsqueeze(0).requires_grad_(True)
 
@@ -103,7 +103,11 @@ with trange(1,ds.data_lengths[seq_no]-50,50) as seq_t:
                 j3ds = smpl_out.Jtr[:,:22,:]
 
                 # camera extrinsics
-                cam_ext = torch.cat([p3d_rt.rotation_6d_to_matrix(cam_orient),cam_position.unsqueeze(4)],dim=4)
+                # cam_orient_seq = cam_orient.unsqueeze(2).repeat(1,1,seq_len,1)
+                # cam_position_seq = cam_position.unsqueeze(2).repeat(1,1,seq_len,1)
+                cam_orient_seq = cam_orient
+                cam_position_seq = cam_position
+                cam_ext = torch.cat([p3d_rt.rotation_6d_to_matrix(cam_orient_seq),cam_position_seq.unsqueeze(4)],dim=4)
                 cam_ext = torch.cat([cam_ext,torch.tensor([0,0,0,1]).type_as(cam_ext).repeat(batch_size,num_cams,seq_size,1,1)],dim=3)
 
                 # camera projection
@@ -113,7 +117,7 @@ with trange(1,ds.data_lengths[seq_no]-50,50) as seq_t:
                                 cam_intr[:,i].unsqueeze(1).expand(-1,seq_size,-1,-1).reshape(-1,3,3).float()).reshape(batch_size,seq_size,-1,2) for i in range(num_cams)]).permute(1,0,2,3,4)
 
                 # camera extrinsics
-                # cam_poses = torch.inverse(cam_ext)
+                cam_poses = torch.inverse(cam_ext)
 
                 ####################### Losses #######################
 
@@ -124,7 +128,7 @@ with trange(1,ds.data_lengths[seq_no]-50,50) as seq_t:
                 loss_z = (smpl_motion_latent*smpl_motion_latent).mean()
 
                 # smooth camera motions
-                loss_cams = ((cam_orient[:,:,1:] - cam_orient[:,:,:-1])**2).mean() + ((cam_position[:,:,1:] - cam_position[:,:,:-1])**2).mean()
+                loss_cams = ((cam_poses[:,:,1:] - cam_poses[:,:,:-1])**2).mean()
 
                 # shape regularization loss
                 loss_betas = (smpl_shape*smpl_shape).mean()
@@ -157,14 +161,14 @@ with trange(1,ds.data_lengths[seq_no]-50,50) as seq_t:
                     if hparams["data_name"].lower() == "h36m":
                         im_res = [1000,1000]
                     # random index
-                    idx = np.random.randint(cam_orient.shape[0])
+                    idx = np.random.randint(cam_orient_seq.shape[0])
                     rend_ims = np.zeros([num_cams,seq_len,im_res[0],im_res[1],3])
                     for cam in range(num_cams):
                         for s in range(seq_len):
                             im = cv2.imread(full_images_paths[cam][s])[:im_res[0],:im_res[1],::-1]/255.
                             rend_ims[cam,s] = renderer(smpl_out.v.view(-1,seq_len,6890,3)[idx,s].detach().cpu().numpy(),
-                                                cam_position[idx,cam,s,:3].detach().cpu().numpy(),
-                                                p3d_rt.rotation_6d_to_matrix(cam_orient[idx,cam,s].unsqueeze(0)).detach().cpu().numpy(),
+                                                cam_position_seq[idx,cam,s,:3].detach().cpu().numpy(),
+                                                p3d_rt.rotation_6d_to_matrix(cam_orient_seq[idx,cam,s].unsqueeze(0)).detach().cpu().numpy(),
                                                 im,intr=cam_intr[idx,cam].detach().cpu().numpy(),
                                                 faces=smpl.f.detach().cpu().numpy())
 
@@ -173,7 +177,6 @@ with trange(1,ds.data_lengths[seq_no]-50,50) as seq_t:
                                         nrow=rend_ims.shape[0]).permute(1,2,0).cpu().numpy()[::5,::5] for i in range(rend_ims.shape[1])])
 
         with torch.no_grad():
-            cam_poses = torch.inverse(cam_ext)
             full_cam_orient = p3d_rt.matrix_to_quaternion(cam_poses[:,:,:,:3,:3]).detach().cpu().numpy()
             full_cam_position = cam_poses[:,:,:,:3,3].detach().cpu().numpy()
             full_smpl_verts = smpl_out.v.detach().cpu().numpy()
