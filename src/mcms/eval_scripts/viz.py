@@ -8,13 +8,12 @@ import math
 D = bpy.data
 C = bpy.context
 
-
 empty = D.objects.new("empty",None)
 C.scene.collection.objects.link(empty)
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/test/0029/test_00451.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/src/mcms/eval_scripts/temp_sampl_cat.npz")
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 

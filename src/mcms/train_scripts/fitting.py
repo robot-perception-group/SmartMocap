@@ -30,6 +30,7 @@ loss_z_weight = 10
 loss_cams_weight = 10000
 loss_betas_weight = 10
 n_optim_iters = 1000
+loss_j3d_weight = 1000
 lr = 0.01
 
 
@@ -63,7 +64,8 @@ seq_no = 29
 # make dir for seq_no
 os.makedirs("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/test/{:04d}".format(seq_no),exist_ok=True)
 
-with trange(451,ds.data_lengths[seq_no]-50,50) as seq_t:
+# with trange(451,ds.data_lengths[seq_no]-50,50) as seq_t:
+with trange(451,500,50) as seq_t:
     for seq_start in seq_t:
         # get batch
         batch = ds.__getitem__(seq_no,seq_start)
@@ -145,7 +147,6 @@ with trange(451,ds.data_lengths[seq_no]-50,50) as seq_t:
                         loss_z_weight * loss_z + \
                             loss_cams_weight * loss_cams + \
                                 loss_betas_weight * loss_betas
-
                 # zero grad optimizer
                 optim.zero_grad()
                 

@@ -1,6 +1,7 @@
 import torch
 from torch.nn import functional as F
 import numpy as np
+from pytorch3d.transforms import rotation_conversions as p3d_rt
 
 """
 Useful geometric operations, e.g. Perspective projection and a differentiable Rodrigues formula
@@ -183,3 +184,20 @@ def lstsq_triangulation(intrinsic,extrinsic,points_2d):
     x = np.linalg.lstsq(A, B,rcond=None)[0]
 
     return x, norm_points
+
+
+def get_ground_point(position, orientation):
+    '''
+    '''
+    grnd_pos = position.clone()
+    grnd_pos[2] = 0.0
+
+    fwd = orientation[:3,2]
+    fwd[2] = 0
+    fwd /= torch.linalg.norm(fwd)
+    if fwd[0] > 0:
+        tfm = p3d_rt.axis_angle_to_matrix(torch.tensor([0,0,-torch.arccos(fwd[1])]).type_as(fwd).unsqueeze(0))
+    else:
+        tfm = p3d_rt.axis_angle_to_matrix(torch.tensor([0,0,torch.arccos(fwd[1])]).type_as(fwd).unsqueeze(0))
+
+    return grnd_pos, tfm
