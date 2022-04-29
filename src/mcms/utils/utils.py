@@ -58,13 +58,12 @@ def rottrans2transf(rotmat,trans):
 def smpl2nmg(poses,bm):
     joints = bm.forward(root_orient=poses[:,3:6],pose_body=poses[:,6:]).Jtr
     joint_pos_wrt_root = joints[:,1:] - joints[:,0:1]
-    transfs = torch.eye(4).unsqueeze(0).unsqueeze(0).repeat(poses.shape[0],22,1,1).to(poses.device)
     pose_angles = poses[:,3:].view(poses.shape[0],-1,3)
 
-    transfs[:,0] = rottrans2transf(p3dt.axis_angle_to_matrix(pose_angles[:,0]),joints[:,0])
+    temptrans = [rottrans2transf(p3dt.axis_angle_to_matrix(pose_angles[:,0]),joints[:,0])]
     for j in range(1,22):
-        transfs[:,j] = rottrans2transf(torch.matmul(transfs[:,bm.kintree_table[0,j],:3,:3],p3dt.axis_angle_to_matrix(pose_angles[:,j])),joint_pos_wrt_root[:,j])
-    
+        temptrans.append(rottrans2transf(torch.matmul(temptrans[bm.kintree_table[0,j]][:,:3,:3],p3dt.axis_angle_to_matrix(pose_angles[:,j])),joint_pos_wrt_root[:,j]))  
+    transfs = torch.stack(temptrans,dim=1)
     transfs[:,:,:3,3] += poses[:,:3].unsqueeze(1)
 
     nmg_transfs = torch.zeros(poses.shape[0],22,9).float().to(poses.device)
@@ -88,3 +87,16 @@ def nmg2smpl(nmg_transfs,bm):
     trans = transfs[:,0,:3,3] - joints[:,0]
 
     return torch.cat([trans,poses_angles.reshape(trans.shape[0],22*3)],dim=1)
+
+
+def to_homogeneous(rot,pos):
+
+    tfm_rot = rot.reshape(-1,3,3)
+    tfm_pos = pos.reshape(-1,3,1)
+    tfm = torch.cat([tfm_rot,tfm_pos],dim=2)
+    tfm = torch.cat([tfm,torch.tensor([0,0,0,1]).type_as(tfm).repeat(tfm.shape[0],1,1)],dim=1).reshape(*rot.shape[:-2],4,4)
+
+    return tfm
+
+def gmcclure(e,sigma):
+    return e**2/(e**2+sigma**2)

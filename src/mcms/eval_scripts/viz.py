@@ -13,12 +13,11 @@ C.scene.collection.objects.link(empty)
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/src/mcms/eval_scripts/temp_sampl_cat.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/savitr_test/0029/test_00000.npz")
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 
 smpl_out = {"0":data["verts"]}
-
 try:
     cam_trans = data["cam_trans"][0]
     cam_rots = data["cam_rots"][0]
@@ -26,6 +25,17 @@ try:
     cams_available = True
 except:
     cams_available = False
+
+if cams_available:
+    bpy.ops.import_mesh.stl(filepath="/is/ps3/nsaini/projects/mcms/cam.stl")
+    cam_stl_obj = [obj for obj in bpy.context.scene.objects if obj.name=="cam"]
+    cam_stl_obj[0].name = "cam_0"
+    for n in range(1,num_cams):
+        cam_stl_obj.append(cam_stl_obj[0].copy())
+        cam_stl_obj[-1].name = "cam_"+str(n)
+        bpy.context.collection.objects.link(cam_stl_obj[-1])
+
+
 
 motion_range = [0]
 # motion_range = range(8,17)
@@ -40,10 +50,7 @@ for idx in motion_range:
     smpl_obj.location[0] = idx
 
     if cams_available:
-        for cam in range(num_cams):
-            cam_mesh = D.cameras.new(name="cam_"+str(cam))
-            cam_obj = D.objects.new(cam_mesh.name,cam_mesh)
-            C.scene.collection.objects.link(cam_obj)
+        for cam, cam_obj in enumerate(cam_stl_obj):
             cam_obj.parent = empty
             cam_obj.location[0] = cam_trans[cam,0,0]
             cam_obj.location[1] = cam_trans[cam,0,1]

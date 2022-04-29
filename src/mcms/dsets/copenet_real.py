@@ -27,16 +27,16 @@ class copenet_real(Dataset):
     def __init__(self,hparams,drange:range,first_cam=0,kp_agrmnt_threshold=100):
         super().__init__()
 
-        if osp.exists(hparams["datapath"]):
+        if osp.exists(hparams["data_datapath"]):
             print("loading copenet real data...")
             
-            db_im1 = [osp.join(hparams["datapath"],"machine_1","images") + "/" + "{:06d}.jpg".format(i) for i in drange]
-            db_im2 = [osp.join(hparams["datapath"],"machine_2","images") + "/" + "{:06d}.jpg".format(i) for i in drange]
+            db_im1 = [osp.join(hparams["data_datapath"],"machine_1","images") + "/" + "{:06d}.jpg".format(i) for i in drange]
+            db_im2 = [osp.join(hparams["data_datapath"],"machine_2","images") + "/" + "{:06d}.jpg".format(i) for i in drange]
 
-            opose_m1 = pkl.load(open(osp.join(hparams["datapath"],"machine_1","openpose_res.pkl"),"rb"))
-            opose_m2 = pkl.load(open(osp.join(hparams["datapath"],"machine_2","openpose_res.pkl"),"rb"))
-            apose_m1 = json.load(open(osp.join(hparams["datapath"],"machine_1","alphapose_res.json"),"r"))
-            apose_m2 = json.load(open(osp.join(hparams["datapath"],"machine_2","alphapose_res.json"),"r"))
+            opose_m1 = pkl.load(open(osp.join(hparams["data_datapath"],"machine_1","openpose_res.pkl"),"rb"))
+            opose_m2 = pkl.load(open(osp.join(hparams["data_datapath"],"machine_2","openpose_res.pkl"),"rb"))
+            apose_m1 = json.load(open(osp.join(hparams["data_datapath"],"machine_1","alphapose_res.json"),"r"))
+            apose_m2 = json.load(open(osp.join(hparams["data_datapath"],"machine_2","alphapose_res.json"),"r"))
             
             if drange[0] == 0:
                 pass
@@ -107,16 +107,16 @@ class copenet_real(Dataset):
             self.opose = np.reshape(opose,[2,-1,24,3])
             self.apose = np.reshape(apose,[2,-1,24,3])
 
-            cv_file = cv2.FileStorage(osp.join(hparams["datapath"],"machine_1","camera_calib.yml"), cv2.FILE_STORAGE_READ)
+            cv_file = cv2.FileStorage(osp.join(hparams["data_datapath"],"machine_1","camera_calib.yml"), cv2.FILE_STORAGE_READ)
             self.intr0 = cv_file.getNode("K").mat()
             cv_file.release()
-            cv_file = cv2.FileStorage(osp.join(hparams["datapath"],"machine_2","camera_calib.yml"), cv2.FILE_STORAGE_READ)
+            cv_file = cv2.FileStorage(osp.join(hparams["data_datapath"],"machine_2","camera_calib.yml"), cv2.FILE_STORAGE_READ)
             self.intr1 = cv_file.getNode("K").mat()
             cv_file.release()
 
             
-            pose0 = pkl.load(open(osp.join(hparams["datapath"],"machine_1","markerposes_corrected_all.pkl"),"rb"))
-            pose1 = pkl.load(open(osp.join(hparams["datapath"],"machine_2","markerposes_corrected_all.pkl"),"rb"))
+            pose0 = pkl.load(open(osp.join(hparams["data_datapath"],"machine_1","markerposes_corrected_all.pkl"),"rb"))
+            pose1 = pkl.load(open(osp.join(hparams["data_datapath"],"machine_2","markerposes_corrected_all.pkl"),"rb"))
             rvecs = []
             k0 = sorted(pose0.keys())
             for i in range(len(pose1)):
@@ -158,14 +158,14 @@ class copenet_real(Dataset):
 
 
     def __len__(self):
-        return len(self.db["im0"])
+        return len(self.db["im0"])-self.seq_len
 
 
     def __getitem__(self, idx):
 
 
         # get sequence start
-        seq_start = np.random.randint(0,len(self.db["im0"]) - self.seq_len)
+        seq_start = idx
 
         # get intrinsics
         cam_intr = np.stack([self.intr0,self.intr1],axis=0)
@@ -210,7 +210,7 @@ class copenet_real(Dataset):
                 # normalize the image (for resnet)
                 images[cam,t] = self.normalize(torch.from_numpy(crp_scl_image.transpose(2,0,1)).float())
 
-        full_img_pth_list = [self.db["im0"][idx:idx+t],self.db["im1"][idx:idx+t]]
+        full_img_pth_list = [self.db["im0"][idx:idx+self.seq_len],self.db["im1"][idx:idx+self.seq_len]]
 
         return {"full_im_paths":full_img_pth_list, "images":images, "bbs":bbs, "j2d":j2d, "cam_intr":cam_intr,
                 "moshbetas":None, "moshorient":None, "moshtrans":None, "moshpose":None, "mosh_available":False}
