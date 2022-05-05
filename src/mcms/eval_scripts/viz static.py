@@ -15,7 +15,7 @@ cmap = cm.get_cmap('viridis')
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/savitr_test/0029/test_00000.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/rich/0000/test_00000.npz")
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 
@@ -63,7 +63,7 @@ for idx in motion_range:
             cam_obj.scale[1] = 10
             cam_obj.scale[2] = 10
             cam_obj.rotation_mode = 'QUATERNION'
-            cam_obj.rotation_quaternion = cam_rots[cam,0]
+            cam_obj.rotation_quaternion = cam_rots[cam,idx]
             cam_mesh = cam_obj.data
             cam_mesh.materials.append(mat)
             cam_obj.show_transparent = True

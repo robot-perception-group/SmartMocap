@@ -101,7 +101,8 @@ full_cam_ext = []
 if dset.lower() == "h36m":
     os.makedirs("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}".format(config["trial_name"],seq_no),exist_ok=True)
 else:
-    os.makedirs("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}".format(config["trial_name"]),exist_ok=True)
+    seq_no = 0
+    os.makedirs("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}".format(config["trial_name"],seq_no),exist_ok=True)
 
 
 

@@ -12,7 +12,9 @@ import h5py
 import json
 from tqdm import tqdm
 import cv2
+import copy
 from torchvision import transforms
+from scipy.spatial.transform import Rotation
 
 from ..utils.utils import resize_with_pad
 
@@ -48,9 +50,11 @@ class rich(Dataset):
         # load keypoints for static cams
         j2d = []
         full_im_path_list = []
+        pare_res = []
         for c in range(self.num_cams-1):
             kps = []
             im_paths = []
+            pare_results_cam = []
             for d in self.frames_dirs[idx:idx+seq_len]:
                 try:
                     bbox = json.load(open(ospj(d,"00","bbox_refine",d.split("/")[-1]+"_{:02d}.json".format(c)),"r"))
@@ -63,18 +67,29 @@ class rich(Dataset):
                     keypoints[op_map2smpl==-1,:] = 0
 
                     kps.append(keypoints)
+
+                    # load pare results
+                    cams_present = sorted([int(x.split("/")[-1].split(".")[0].split("_")[-1]) for x in glob.glob(ospj(d,"00","pare_results_refine","*.pkl"))])
+                    pare_pose = pkl.load(open(ospj(d,"00","pare_results_refine",d.split("/")[-1]+"_{:02d}.pkl".format(c)),"rb"))["pred_pose"][:,:22]
+                    pare_results_cam.append(pare_pose[cams_present.index(c)])
+                    # pare_res.append(np.stack([(Rotation.from_matrix(pare_resuls[:,i].detach().cpu().numpy())).mean().as_rotvec() for i in range(pare_resuls.shape[1])]))
+
+
                 except:
                     print("No keypoints for "+ospj(d,"00","keypoints_refine",d.split("/")[-1]+"_{:02d}_keypoints.json".format(c)))
                     kps.append(np.zeros([24,3]))
+                    pare_results_cam.append(copy.deepcopy(pare_results_cam[-1]))
                 
                 im_paths.append(ospj(d,"00","images_orig",d.split("/")[-1]+"_{:02d}.png".format(c)))
 
             j2d.append(kps)
             full_im_path_list.append(im_paths)
+            pare_res.append(torch.stack(pare_results_cam))
         
         # add keypoints for freecam
         kps = []
         im_paths = []
+        pare_results_cam = []
         for d in self.frames_dirs[idx:idx+seq_len]:
             try:
                 bbox = json.load(open(ospj(d,"00","freecam",d.split("/")[-1]+"_{:02d}_bbox.json".format(10)),"r"))
@@ -87,18 +102,39 @@ class rich(Dataset):
                 keypoints[op_map2smpl==-1,:] = 0
 
                 kps.append(keypoints)
+
+                # load pare results
+                pare_pose = pkl.load(open(ospj(d,"00","freecam",d.split("/")[-1]+"_{:02d}_pare.pkl".format(10)),"rb"))["pred_pose"][:,:22]
+                pare_results_cam.append(pare_pose[0])
+
             except:
                 import ipdb;ipdb.set_trace()
                 kps.append(np.zeros([24,3]))
+                pare_results_cam.append(copy.deepcopy(pare_results_cam[-1]))
 
             im_paths.append(ospj(d,"00","freecam",d.split("/")[-1]+"_{:02d}_images_orig.png".format(10)))
+
+
         
         j2d.append(kps)
         full_im_path_list.append(im_paths)
+        pare_res.append(torch.stack(pare_results_cam))
+
+        pare_res = torch.stack(pare_res).detach().cpu().numpy()
+
+
+        pare_results = []
+        for i in range(seq_len):
+            pare_results.append(np.stack([Rotation.from_matrix(pare_res[:,i,j]).mean().as_rotvec() for j in range(1,pare_res.shape[2])]))
+
+        pare_results = torch.from_numpy(np.stack(pare_results)).float()
+
+        pare_res_orient = torch.from_numpy(np.stack([Rotation.from_matrix(pare_res[i,:,0]).as_rotvec() for i in range(pare_res.shape[0])])).float()
 
         j2d = torch.from_numpy(np.array(j2d)).float()
+        
 
-        return {"full_im_paths":full_im_path_list, "j2d":j2d, "cam_intr":self.cam_intrinsics}
+        return {"full_im_paths":full_im_path_list, "j2d":j2d, "cam_intr":self.cam_intrinsics, "pare_poses":pare_results, "pare_orient":pare_res_orient}
 
 
 

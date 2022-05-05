@@ -13,7 +13,7 @@ C.scene.collection.objects.link(empty)
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/savitr_test/0029/test_00000.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/rich/0000/test_00020_itr_1999.npz")
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 
@@ -55,6 +55,9 @@ for idx in motion_range:
             cam_obj.location[0] = cam_trans[cam,0,0]
             cam_obj.location[1] = cam_trans[cam,0,1]
             cam_obj.location[2] = cam_trans[cam,0,2]
+            cam_obj.scale[0] = 10
+            cam_obj.scale[1] = 10
+            cam_obj.scale[2] = 10
             cam_obj.rotation_mode = 'QUATERNION'
             cam_obj.rotation_quaternion = cam_rots[cam,0]
 
@@ -72,7 +75,7 @@ def anim_handler(scene):
                 cam_obj.location[0] = cam_trans[cam,frame,0]
                 cam_obj.location[1] = cam_trans[cam,frame,1]
                 cam_obj.location[2] = cam_trans[cam,frame,2]
-                cam_obj.rotation_mode = 'QUATERNION'
-                cam_obj.rotation_quaternion = cam_rots[cam,idx]
+                # cam_obj.rotation_mode = 'QUATERNION'
+                cam_obj.rotation_quaternion = cam_rots[cam,frame]
 
 bpy.app.handlers.frame_change_pre.append(anim_handler)
