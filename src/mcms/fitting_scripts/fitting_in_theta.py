@@ -97,6 +97,10 @@ full_smpl_verts = []
 full_smpl_shape = []
 full_smpl_motion_latent = []
 full_cam_ext = []
+full_smpl_orient = []
+full_smpl_trans = []
+full_smpl_motion = []
+full_j2d = []
 # overlay_gifs = []
 
 # make dir for seq_no
@@ -130,8 +134,6 @@ smpl_art_motion = p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(torch
 smpl_shape = torch.zeros(10).unsqueeze(0).requires_grad_(True)
 
 
-
-
 # with trange(451,ds.data_lengths[seq_no]-50,50) as seq_t:
 # with torch.autograd.set_detect_anomaly(True):
 with trange(big_seq_start,big_seq_end,fps_scl*(seq_len-overlap)) as seq_t:
@@ -148,6 +150,7 @@ with trange(big_seq_start,big_seq_end,fps_scl*(seq_len-overlap)) as seq_t:
         else:
             batch = ds.__getitem__(seq_start)
         j2ds = batch["j2d"].float().unsqueeze(0)
+        full_j2d.append(j2ds.detach().cpu().numpy())
         batch_size = j2ds.shape[0]
         num_cams = j2ds.shape[1]
         seq_len = j2ds.shape[2]
@@ -186,29 +189,33 @@ with trange(big_seq_start,big_seq_end,fps_scl*(seq_len-overlap)) as seq_t:
                 smpl_shape = smpl_shape.detach().requires_grad_(True)
 
             # optimize only selected joints
-            smpl_art_motion = smpl_art_motion_init[:,[0,1,2,3,4,5,6,7,8,9,10,12,13,15,16,17,18,19,20]].detach().requires_grad_(True)
-            smpl_art_motion_nonOpt = smpl_art_motion_init[:,[11,14]].detach()
-            smpl_art_motion_interm = torch.cat([smpl_art_motion[:,:11],smpl_art_motion_nonOpt[:,:1],
-                                                    smpl_art_motion[:,11:13],smpl_art_motion_nonOpt[:,1:],
-                                                    smpl_art_motion[:,13:]],dim=1)
+            # smpl_art_motion = smpl_art_motion_init[:,[0,1,2,3,4,5,6,7,8,12,13,15,16,17,18,19,20]].detach().requires_grad_(True)
+            # smpl_art_motion_nonOpt = smpl_art_motion_init[:,[9,10,11,14]].detach()
+            smpl_art_motion = smpl_art_motion_init.detach().requires_grad_(True)
 
 
         ################# Optimizer #################
         if config["optimize_intr"]:
             optim = torch.optim.Adam(cam_orient + cam_position + [focal_len, smpl_motion, smpl_shape],lr=lr)
         else:
-            optim1 = torch.optim.Adam(cam_orient + cam_position + [smpl_orient_rf],lr=lr)
-            optim2 = torch.optim.Adam(cam_orient + cam_position + [smpl_art_motion, smpl_trans_rf, smpl_orient_rf, smpl_shape],lr=lr)
+            optim1 = torch.optim.Adam(cam_orient + cam_position + [smpl_trans_rf,smpl_orient_rf],lr=lr)
+            optim2 = torch.optim.Adam(cam_orient + cam_position + [ smpl_trans_rf, smpl_orient_rf, smpl_shape],lr=lr)
 
         with trange(n_optim_iters) as t:
             for i in t:
 
                 if i < config["n_optim_iters_stage1"]:
+                    stage = 0
                     optim = optim1
                 else:
+                    stage = 1
                     optim = optim2
 
                 ################### FWD pass #####################
+                # smpl_art_motion_interm = torch.cat([smpl_art_motion[:,:9],smpl_art_motion_nonOpt[:,:3],
+                #                                     smpl_art_motion[:,9:11],smpl_art_motion_nonOpt[:,3:],
+                #                                     smpl_art_motion[:,11:]],dim=1)
+                smpl_art_motion_interm = smpl_art_motion
                 smpl_trans = torch.cat([smpl_trans_ff,smpl_trans_rf])
                 smpl_orient = torch.cat([smpl_orient_ff,smpl_orient_rf])
                 smpl_motion = torch.cat([smpl_trans.unsqueeze(1),p3d_rt.matrix_to_axis_angle(p3d_rt.rotation_6d_to_matrix(smpl_orient)).unsqueeze(1),
@@ -251,7 +258,12 @@ with trange(big_seq_start,big_seq_end,fps_scl*(seq_len-overlap)) as seq_t:
                 ####################### Losses #######################
 
                 # reprojection loss
-                loss_2d = (j2ds[:,:,:,:22,2]*(((proj_j3ds[:,:,:,:22] - j2ds[:,:,:,:22,:2])**2).sum(dim=4))).sum(dim=1).mean()
+                idcs = np.where(j2ds[0,0,0,:22,2]!=0)[0]
+                if stage == 1:
+                # if False:
+                    loss_2d = (j2ds[:,:,:,idcs,2]*((gmcclure(proj_j3ds[:,:,:,idcs] - j2ds[:,:,:,idcs,:2],config["gmcclure_sigma"])).sum(dim=4))).sum(dim=1).mean()
+                else:
+                    loss_2d = (j2ds[:,:,:,idcs,2]*(((proj_j3ds[:,:,:,idcs] - j2ds[:,:,:,idcs,:2])**2).sum(dim=4))).sum(dim=1).mean()
 
                 # latent space regularization
                 loss_z = (smpl_motion_latent*smpl_motion_latent).mean()
@@ -275,17 +287,18 @@ with trange(big_seq_start,big_seq_end,fps_scl*(seq_len-overlap)) as seq_t:
                 loss_smpl_in_front = torch.nn.functional.relu(-cam_ext[:,:,:,2,3]).mean()
 
                 # total loss
-                loss = loss_2d_weight * loss_2d + \
-                        loss_z_weight * loss_z + \
-                            loss_cams_weight * loss_cams + \
-                                loss_betas_weight * loss_betas + \
-                                    loss_human_gp_weight * loss_human_gp + \
-                                        loss_cam_gp_weight * loss_cam_gp + \
-                                            loss_vp_weight * loss_vp + \
-                                                loss_smpl_in_front_weight * loss_smpl_in_front
+                loss = loss_2d_weight[stage] * loss_2d + \
+                        loss_z_weight[stage] * loss_z + \
+                            loss_cams_weight[stage] * loss_cams + \
+                                loss_betas_weight[stage] * loss_betas + \
+                                    loss_human_gp_weight[stage] * loss_human_gp + \
+                                        loss_cam_gp_weight[stage] * loss_cam_gp + \
+                                            loss_vp_weight[stage] * loss_vp + \
+                                                loss_smpl_in_front_weight[stage] * loss_smpl_in_front
 
                 # Viz
-                if i == 0:
+                if False:
+                # if i == 0:
                     full_images_paths = batch["full_im_paths"]
                     num_cams = len(full_images_paths)
                     seq_len = len(full_images_paths[0])
@@ -348,7 +361,9 @@ with trange(big_seq_start,big_seq_end,fps_scl*(seq_len-overlap)) as seq_t:
                     writer.add_scalar(k,v,global_step=i)
 
                 # Viz
-                if i == n_optim_iters-1 or i == config["n_optim_iters_stage1"]-1:
+                # if i == n_optim_iters-1 or i == config["n_optim_iters_stage1"]-1:
+                # if i == n_optim_iters-1:
+                if False:
                     full_images_paths = batch["full_im_paths"]
                     num_cams = len(full_images_paths)
                     seq_len = len(full_images_paths[0])
@@ -382,11 +397,6 @@ with trange(big_seq_start,big_seq_end,fps_scl*(seq_len-overlap)) as seq_t:
                         cam_rots=p3d_rt.matrix_to_quaternion(cam_poses[:,:,:,:3,:3]).detach().cpu().numpy())
 
         with torch.no_grad():
-            np.savez("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/test_{:05d}".format(config["trial_name"],seq_no,seq_start),
-                verts=smpl_out.v.detach().cpu().numpy(),
-                cam_trans=cam_poses[:,:,:,:3,3].detach().cpu().numpy(),
-                cam_rots=p3d_rt.matrix_to_quaternion(cam_poses[:,:,:,:3,:3]).detach().cpu().numpy())
-            
             if len(full_cam_orient) == 0:
                 full_cam_orient.append(p3d_rt.matrix_to_quaternion(cam_poses[:,:,:,:3,:3]).detach().cpu().numpy())
                 full_cam_position.append(cam_poses[:,:,:,:3,3].detach().cpu().numpy())
@@ -394,6 +404,9 @@ with trange(big_seq_start,big_seq_end,fps_scl*(seq_len-overlap)) as seq_t:
                 full_smpl_shape.append(smpl_shape.detach().cpu().numpy())
                 full_smpl_motion_latent.append(smpl_motion_latent.detach())
                 full_cam_ext.append(cam_ext.detach())
+                full_smpl_orient.append(p3d_rt.matrix_to_axis_angle(p3d_rt.rotation_6d_to_matrix(smpl_orient)).detach().cpu().numpy())
+                full_smpl_trans.append(smpl_trans.detach().cpu().numpy())
+                full_smpl_motion.append(smpl_motion[:,6:].detach().cpu().numpy())
                 # save last smpl orient
                 last_smpl_orient = smpl_motion[:,3:6].detach()
                 last_smpl_trans = smpl_motion[:,:3].detach()
@@ -420,6 +433,9 @@ with trange(big_seq_start,big_seq_end,fps_scl*(seq_len-overlap)) as seq_t:
                 full_smpl_shape.append(smpl_shape.detach().cpu().numpy())
                 full_smpl_motion_latent.append(smpl_motion_latent.detach())
                 full_cam_ext.append(cam_ext.detach())
+                full_smpl_orient.append(updated_smpl_orient.detach().cpu().numpy())
+                full_smpl_trans.append(updated_smpl_trans.detach().cpu().numpy())
+                full_smpl_motion.append(smpl_motion[:,6:].detach().cpu().numpy())
 
                 # save last smpl orient
                 last_smpl_orient = p3d_rt.matrix_to_axis_angle(tfmd_smpl[:,:3,:3]).detach()
@@ -432,6 +448,11 @@ full_smpl_verts = np.concatenate(full_smpl_verts)
 full_smpl_shape = np.concatenate(full_smpl_shape)
 full_smpl_motion_latent = torch.cat(full_smpl_motion_latent,dim=0)
 full_cam_ext = torch.cat(full_cam_ext,dim=0)
+full_smpl_orient = np.concatenate(full_smpl_orient,axis=0)
+full_smpl_trans = np.concatenate(full_smpl_trans,axis=0)
+full_smpl_motion = np.concatenate(full_smpl_motion,axis=0)
+full_j2d = np.concatenate(full_j2d,axis=2)
+
 # imageio.mimsave("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/test/test.gif",overlay_gifs,fps=30)
 
 np.savez("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/test_full".format(config["trial_name"],seq_no),
@@ -444,6 +465,14 @@ non_overlap_cam_position = np.concatenate([full_cam_position[:,:,i:i+seq_len-ove
                             [full_cam_position[:,:,-seq_len:]],axis=2)
 non_overlap_cam_orient = np.concatenate([full_cam_orient[:,:,i:i+seq_len-overlap] for i in range(0,full_cam_orient.shape[2]-seq_len,seq_len)] +
                             [full_cam_orient[:,:,-seq_len:]],axis=2)
+non_overlap_smpl_trans = np.concatenate([full_smpl_trans[i:i+seq_len-overlap] for i in range(0,full_smpl_trans.shape[0]-seq_len,seq_len)] +
+                            [full_smpl_trans[-seq_len:]],axis=0)
+non_overlap_smpl_orient = np.concatenate([full_smpl_orient[i:i+seq_len-overlap] for i in range(0,full_smpl_orient.shape[0]-seq_len,seq_len)] +
+                            [full_smpl_orient[-seq_len:]],axis=0)
+non_overlap_smpl_motion = np.concatenate([full_smpl_motion[i:i+seq_len-overlap] for i in range(0,full_smpl_motion.shape[0]-seq_len,seq_len)] +
+                            [full_smpl_motion[-seq_len:]],axis=0)
+non_overlap_j2ds = np.concatenate([full_j2d[:,:,i:i+seq_len-overlap] for i in range(0,full_j2d.shape[2]-seq_len,seq_len)] +
+                            [full_j2d[:,:,-seq_len:]],axis=2)
 non_overlap_smpl_verts = np.concatenate([full_smpl_verts[i:i+seq_len-overlap] for i in range(0,full_smpl_verts.shape[0]-seq_len,seq_len)] +
                             [full_smpl_verts[-seq_len:]],axis=0)
 
@@ -457,145 +486,204 @@ np.savez("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/test_full_no
 
 ###############################################################################################################################
 
+cam_ext = to_homogeneous(p3d_rt.quaternion_to_matrix(
+            torch.from_numpy(non_overlap_cam_orient)),
+            torch.from_numpy(non_overlap_cam_position))
 
-# SLERP interpolation
-from scipy.spatial.transform import Rotation as R
-from scipy.spatial.transform import Slerp
-from scipy.interpolate import interp1d
-full_cam_interp_orient = []
-full_cam_interp_position = []
-for i in range(num_cams):
-    rots = p3d_rt.quaternion_to_matrix(torch.from_numpy(non_overlap_cam_orient[0,i]))
-    idcs = list(range(0,rots.shape[0]-seq_len+1,seq_len-overlap)) + [rots.shape[0]-1]
-    key_rots = R.from_matrix(rots[idcs])
-    interp_rots = torch.from_numpy(Slerp(idcs,key_rots)(range(0,rots.shape[0])).as_matrix())
-    full_cam_interp_orient.append(p3d_rt.matrix_to_quaternion(interp_rots).detach().cpu().numpy())
-    full_cam_interp_position.append(interp1d(idcs,non_overlap_cam_position[0,i][idcs],axis=0)(range(0,rots.shape[0])))
+seq_len = cam_ext.shape[2]
 
-full_cam_interp_orient = np.stack(full_cam_interp_orient,axis=0)
-full_cam_interp_position = np.stack(full_cam_interp_position,axis=0)
+# Full fittings
+full_cam_orient = []
+full_cam_position = []
+full_smpl_verts = []
+full_smpl_shape = []
+full_smpl_motion_latent = []
+full_cam_ext = []
+full_smpl_orient = []
+full_smpl_trans = []
+full_smpl_motion = []
+# overlay_gifs = []
 
-
-np.savez("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/test/{:04d}/test_full_slerp".format(seq_no),
-     verts=non_overlap_smpl_verts,
-     cam_trans=full_cam_interp_position[np.newaxis, :],
-     cam_rots=full_cam_interp_orient[np.newaxis, :])
-
-
-#################################################################################################################
-
-
-loss_2d_weight = 1
-loss_z_weight = 100
-loss_cams_weight = 10000
-loss_betas_weight = 10
-loss_cont_weight = 100
-
-
-# transformations of cameras
-tfmd_full_cam_ext = torch.cat([p3d_rt.quaternion_to_matrix(torch.from_numpy(full_cam_interp_orient)),torch.from_numpy(full_cam_interp_position).unsqueeze(3)],dim=3)
-tfmd_full_cam_ext = torch.cat([tfmd_full_cam_ext,torch.tensor([0,0,0,1]).type_as(tfmd_full_cam_ext).repeat(tfmd_full_cam_ext.shape[0]
-                                    ,tfmd_full_cam_ext.shape[1],1,1)],dim=2)
-tfmd_full_cam_ext = torch.inverse(tfmd_full_cam_ext)
-tfmd_full_cam_ext = torch.cat([tfmd_full_cam_ext[:,i:i+seq_len] for i in range(0,tfmd_full_cam_ext.shape[1]-seq_len+1,seq_len-overlap)],dim=1)
-
-
-# Camera and SMPL params
-cam_orient_staticcam = p3d_rt.matrix_to_rotation_6d(tfmd_full_cam_ext[:,:,:3,:3]).detach().float().requires_grad_(True)
-cam_position_staticcam = tfmd_full_cam_ext[:,:,:3,3].detach().float().requires_grad_(True)
-# cam_orient_movingcam = p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(torch.tensor([3.14/2,0,0]).float())).repeat(batch_size,num_cams-1,seq_len,1).requires_grad_(True)
-# cam_position_movingcam = torch.tensor([0,0,5]).float().repeat(batch_size,num_cams-1,seq_len,1).requires_grad_(True)
+cam_ext_position = []
+cam_ext_orient = []
+for c in range(ds.num_cams):
+    if c in config["position_changing_cams"]:
+        cam_ext_position.append(cam_ext[:,c:c+1,:,:3,3].requires_grad_(True))
+    else:
+        cam_ext_position.append(cam_ext[:,c:c+1,0:1,:3,3].requires_grad_(True))
+    if c in config["orient_changing_cams"]:
+        cam_ext_orient.append(p3d_rt.matrix_to_rotation_6d(cam_ext[:,c:c+1,:,:3,:3]).requires_grad_(True))
+    else:
+        cam_ext_orient.append(p3d_rt.matrix_to_rotation_6d(cam_ext[:,c:c+1,0:1,:3,:3]).detach().requires_grad_(True))
+smpl_trans = torch.from_numpy(non_overlap_smpl_trans)
+smpl_orient = p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(torch.from_numpy(non_overlap_smpl_orient)))
+smpl_art_motion_init = p3d_rt.matrix_to_rotation_6d(p3d_rt.axis_angle_to_matrix(torch.from_numpy(non_overlap_smpl_motion).reshape(-1,21,3)))
 smpl_shape = torch.zeros(10).unsqueeze(0).requires_grad_(True)
 
+# tensorboard summarywriter
+os.makedirs("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/fullopt".format(config["trial_name"],seq_no),exist_ok=True)
+writer = SummaryWriter(log_dir="/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/fullopt".format(config["trial_name"],seq_no), 
+                filename_suffix="{:04d}".format(seq_start))
 
-j2ds = []
 
-# with trange(451,ds.data_lengths[seq_no]-2000,2*(seq_len-overlap)) as seq_t:
-with trange(big_seq_start,big_seq_end,2*(seq_len-overlap)) as seq_t:
-    for seq_start in seq_t:
-        # get batch
-        batch = ds.__getitem__(seq_no,seq_start)
-        j2ds.append(batch["j2d"].float().unsqueeze(0))
-        cam_intr = torch.from_numpy(batch["cam_intr"]).float().unsqueeze(0)
+j2ds = torch.from_numpy(non_overlap_j2ds).float()
 
-j2ds = torch.cat(j2ds,dim=0)
-smpl_motion_latent = full_smpl_motion_latent.detach().requires_grad_(True)
+with torch.no_grad():
+# parameter initialization
+    # Decode smpl motion using motion vae
+    smpl_trans_rf = smpl_trans[1:].detach().requires_grad_(True)
+    smpl_trans_ff = smpl_trans[:1].detach()
+    smpl_orient_rf = smpl_orient[1:].detach().requires_grad_(True)
+    smpl_orient_ff = smpl_orient[:1].detach()
+
+# optimize only selected joints
+smpl_art_motion = smpl_art_motion_init[:,[0,1,2,3,4,5,6,7,8,9,10,12,13,15,16,17,18,19,20]].detach().requires_grad_(True)
+smpl_art_motion_nonOpt = smpl_art_motion_init[:,[11,14]].detach()
+
+
 
 ################# Optimizer #################
-optim = torch.optim.Adam([smpl_motion_latent, smpl_shape],lr=lr)
-
-batch_size = j2ds.shape[0]
+if config["optimize_intr"]:
+    optim = torch.optim.Adam(cam_ext_orient + cam_ext_position + [focal_len, smpl_motion, smpl_shape],lr=lr)
+else:
+    optim1 = torch.optim.Adam(cam_ext_orient + cam_ext_position + [smpl_orient_rf],lr=lr)
+    optim2 = torch.optim.Adam(cam_ext_orient + cam_ext_position + [ smpl_trans_rf, smpl_orient_rf, smpl_shape],lr=lr)
 
 with trange(n_optim_iters) as t:
-    for _ in t:
+    for i in t:
+
+        if i < config["n_optim_iters_stage1"]:
+            stage = 0
+            optim = optim1
+        else:
+            stage = 1
+            optim = optim2
+
         ################### FWD pass #####################
-
-        # Decode smpl motion using motion vae
+        smpl_art_motion_interm = torch.cat([smpl_art_motion[:,:11],smpl_art_motion_nonOpt[:,:1],
+                                        smpl_art_motion[:,11:13],smpl_art_motion_nonOpt[:,1:],
+                                        smpl_art_motion[:,13:]],dim=1)
+        smpl_trans = torch.cat([smpl_trans_ff,smpl_trans_rf])
+        smpl_orient = torch.cat([smpl_orient_ff,smpl_orient_rf])
+        smpl_motion = torch.cat([smpl_trans.unsqueeze(1),p3d_rt.matrix_to_axis_angle(p3d_rt.rotation_6d_to_matrix(smpl_orient)).unsqueeze(1),
+                                p3d_rt.matrix_to_axis_angle(p3d_rt.rotation_6d_to_matrix(smpl_art_motion_interm))],dim=1).reshape(seq_len,69)
+        
+        
+        # encode smpl motion using motion vae
         mvae_model.eval()
-        smpl_motion_decoded = mvae_model.decode(smpl_motion_latent)
-        smpl_motion_unnorm = smpl_motion_decoded*mvae_std + mvae_mean
-        smpl_motion = nmg2smpl(smpl_motion_unnorm.reshape(batch_size*seq_len,22,9),smpl).reshape(batch_size,seq_len,-1)
-
-        # transform seq chunks
-        cont_seq = [smpl_motion[0].clone()]
-        for j in range(1,smpl_motion.shape[0]):
-            pos, ori = geometry.get_ground_point(smpl_motion[j-1,-overlap,:3],p3d_rt.axis_angle_to_matrix(smpl_motion[j-1,-overlap,3:6]))
-            seq_temp_ori = p3d_rt.matrix_to_axis_angle(torch.matmul(ori,p3d_rt.axis_angle_to_matrix(smpl_motion[j,:,3:6])))
-            seq_temp_pos = torch.matmul(ori,smpl_motion[j,:,:3].unsqueeze(2)).squeeze(2) + pos
-            cont_seq.append(torch.cat([seq_temp_pos,seq_temp_ori,smpl_motion[j,:,6:]],dim=1))
-
-        cont_seq = torch.cat(cont_seq)
+        smpl_motion_latent = []
+        for strt_idx in range(0,seq_len-overlap,25-overlap):
+            curr_pos, curr_ori = geometry.get_ground_point(smpl_trans[strt_idx],p3d_rt.rotation_6d_to_matrix(smpl_orient[strt_idx]))
+            curr_tfm = to_homogeneous(curr_ori,curr_pos)
+            curr_root_pose = to_homogeneous(p3d_rt.rotation_6d_to_matrix(smpl_orient[strt_idx:strt_idx+25]),smpl_trans[strt_idx:strt_idx+25])
+            canonical_root_pose = torch.matmul(torch.inverse(curr_tfm),curr_root_pose)
+            canonical_smpl_motion = torch.cat([canonical_root_pose[:,:3,3],
+                                    p3d_rt.matrix_to_axis_angle(canonical_root_pose[:,:3,:3]),
+                                    smpl_motion[strt_idx:strt_idx+25,6:]],dim=1)
+            nmg_repr = (smpl2nmg(canonical_smpl_motion,smpl).reshape(-1,25,22*9) - mvae_mean)/mvae_std
+            smpl_motion_latent.append(mvae_model.encode(nmg_repr)[:,0])
 
         # SMPL fwd pass
-        cont_seq = cont_seq.reshape(-1,cont_seq.shape[-1])
-        smpl_out = smpl.forward(root_orient = cont_seq[:,3:6],
-                                    pose_body = cont_seq[:,6:],
-                                    trans = cont_seq[:,:3],
-                                    betas = smpl_shape.unsqueeze(1).expand(-1,cont_seq.shape[0],-1).reshape(-1,smpl_shape.shape[-1]))
+        smpl_out = smpl.forward(root_orient = smpl_motion[:,3:6],
+                                    pose_body = smpl_motion[:,6:],
+                                    trans = smpl_motion[:,:3],
+                                    betas = smpl_shape.unsqueeze(1).expand(-1,seq_len,-1).reshape(-1,smpl_shape.shape[-1]))
 
         j3ds = smpl_out.Jtr[:,:22,:]
 
         # camera extrinsics
-        # cam_orient = torch.cat([cam_orient_staticcam.repeat(1,1,seq_len,1),cam_orient_movingcam],dim=1)
-        # cam_position = torch.cat([cam_position_staticcam.repeat(1,1,seq_len,1),cam_position_movingcam],dim=1)
-        cam_orient_seq = cam_orient_staticcam
-        cam_position_seq = cam_position_staticcam
-        cam_ext = torch.cat([p3d_rt.rotation_6d_to_matrix(cam_orient_seq),cam_position_seq.unsqueeze(3)],dim=3).permute(1,0,2,3)
-        cam_ext = torch.cat([cam_ext,torch.tensor([0,0,0,1]).type_as(cam_ext).repeat(j3ds.shape[0],num_cams,1,1)],dim=2)
-
-        # camera projection
-        proj_j3ds = torch.stack([perspective_projection(j3ds,
-                        cam_ext[:,i,:3,:3].reshape(-1,3,3),
-                        cam_ext[:,i,:3,3].reshape(-1,3),
-                        cam_intr[:,i].expand(j3ds.shape[0],-1,-1).float()).reshape(batch_size,seq_len,-1,2) for i in range(num_cams)]).permute(1,0,2,3,4)
+        cam_ext_orient_expanded = torch.cat([x.repeat(1,1,seq_len,1) if x.shape[2]==1 else x for x in cam_ext_orient],dim=1)
+        cam_ext_position_expanded = torch.cat([x.repeat(1,1,seq_len,1) if x.shape[2]==1 else x for x in cam_ext_position],dim=1)
+        cam_ext_temp = torch.cat([p3d_rt.rotation_6d_to_matrix(cam_ext_orient_expanded),cam_ext_position_expanded.unsqueeze(4)],dim=4)
+        cam_ext = torch.cat([cam_ext_temp,torch.tensor([0,0,0,1]).type_as(cam_ext_temp).repeat(batch_size,num_cams,seq_len,1,1)],dim=3)
 
         # camera extrinsics
         cam_poses = torch.inverse(cam_ext)
 
+        # camera projection
+        proj_j3ds = torch.stack([perspective_projection(j3ds,
+                        cam_ext[:,i,:,:3,:3].reshape(-1,3,3),
+                        cam_ext[:,i,:,:3,3].reshape(-1,3),
+                        cam_intr[:,i].unsqueeze(1).expand(-1,seq_len,-1,-1).reshape(-1,3,3)).reshape(batch_size,seq_len,-1,2) for i in range(num_cams)]).permute(1,0,2,3,4)
+
+
         ####################### Losses #######################
 
         # reprojection loss
-        loss_2d = (j2ds[:,:,:,:22,2]*(((proj_j3ds[:,:,:,:22] - j2ds[:,:,:,:22,:2])**2).sum(dim=4))).mean()
+        # if stage == 1:
+        if False:
+            loss_2d = (j2ds[:,:,:,:22,2]*((gmcclure(proj_j3ds[:,:,:,:22] - j2ds[:,:,:,:22,:2],config["gmcclure_sigma"])).sum(dim=4))).sum(dim=1).mean()
+        else:
+            loss_2d = (j2ds[:,:,:,:22,2]*(((proj_j3ds[:,:,:,:22] - j2ds[:,:,:,:22,:2])**2).sum(dim=4))).sum(dim=1).mean()
 
         # latent space regularization
-        loss_z = (smpl_motion_latent*smpl_motion_latent).mean()
+        loss_z = torch.cat([(x*x).mean().unsqueeze(0) for x in smpl_motion_latent]).sum()
 
         # smooth camera motions
-        loss_cams = ((cam_poses[1:] - cam_poses[:-1])**2).mean()
+        loss_cams = ((cam_poses[:,:,1:] - cam_poses[:,:,:-1])**2).mean()
 
         # shape regularization loss
         loss_betas = (smpl_shape*smpl_shape).mean()
 
-        # continuation loss
-        cont_seq_reshaped = cont_seq.reshape(smpl_motion.shape[0],smpl_motion.shape[1],cont_seq.shape[-1])
-        loss_cont = torch.cat([((cont_seq_reshaped[i,-overlap:]-cont_seq_reshaped[i+1,:overlap])**2).mean().unsqueeze(0) for i in range(cont_seq_reshaped.shape[0]-1)]).mean()
+        # ground penetration loss
+        loss_human_gp = torch.nn.functional.relu(-j3ds[:,:,2]).mean()
+
+        # camera ground penetration loss
+        loss_cam_gp = torch.nn.functional.relu(-cam_poses[:,:,:,2,3]).mean()
+
+        # loss vposer
+        loss_vp = (vp_model.encode(smpl_motion[:,6:]).mean**2).mean()
+
+        # loss smpl in front
+        loss_smpl_in_front = torch.nn.functional.relu(-cam_ext[:,:,:,2,3]).mean()
 
         # total loss
-        loss = loss_2d_weight * loss_2d + \
-                loss_z_weight * loss_z + \
-                    loss_cams_weight * loss_cams + \
-                        loss_betas_weight * loss_betas + \
-                            loss_cont_weight * loss_cont
+        loss = loss_2d_weight[stage] * loss_2d + \
+                loss_z_weight[stage] * loss_z + \
+                    loss_cams_weight[stage] * loss_cams + \
+                        loss_betas_weight[stage] * loss_betas + \
+                            loss_human_gp_weight[stage] * loss_human_gp + \
+                                loss_cam_gp_weight[stage] * loss_cam_gp + \
+                                    loss_vp_weight[stage] * loss_vp + \
+                                        loss_smpl_in_front_weight[stage] * loss_smpl_in_front
+
+        # Viz
+        if False:
+        # if i == 0:
+            full_images_paths = batch["full_im_paths"]
+            num_cams = len(full_images_paths)
+            seq_len = len(full_images_paths[0])
+            # random index
+            idx = np.random.randint(cam_ext.shape[0])
+            rend_ims = [np.zeros([seq_len,im_res[c][1],im_res[c][0],3]) for c in range(num_cams)]
+            for cam in tqdm(range(num_cams)):
+                for s in range(seq_len):
+                    im = cv2.imread(full_images_paths[cam][s])[:im_res[cam][1],:im_res[cam][0],::-1]/255.
+                    rend_ims[cam][s] = renderer[cam](smpl_out.v.view(-1,seq_len,6890,3)[idx,s].detach().cpu().numpy(),
+                                        cam_ext[idx,cam,s,:3,3].detach().cpu().numpy(),
+                                        cam_ext[idx,cam,s,:3,:3].unsqueeze(0).detach().cpu().numpy(),
+                                        im,intr=cam_intr[idx,cam].detach().cpu().numpy(),
+                                        faces=smpl.f.detach().cpu().numpy())
+                    for joint in range(j2ds.shape[3]):
+                        rend_ims[cam][s] = rend_ims[cam][s]*255
+                        cv2.circle(rend_ims[cam][s],(int(j2ds[idx,cam,s,joint,0]),
+                                    int(j2ds[idx,cam,s,joint,1])),10,(255,255,255),-1)
+                        rend_ims[cam][s] = rend_ims[cam][s]/255
+            
+            for c in range(num_cams):
+                imageio.mimsave("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/test_{:05d}_cam_{:02d}_itr_{:04d}.gif".format(config["trial_name"],
+                            seq_no,seq_start,c,i),list(rend_ims[c][:,::2,::2]))
+                # imageio.mimsave("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/test_{:05d}_cam_{:02d}.gif".format(config["trial_name"],seq_no,seq_start,c),
+                #             [make_grid(torch.from_numpy(rend_ims[:,i]).permute(0,3,1,2),
+                #                 nrow=rend_ims.shape[0]).permute(1,2,0).cpu().numpy()[::5,::5] for i in range(rend_ims.shape[1])])
+
+
+            np.savez("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/test_{:05d}_itr_{:04d}".format(config["trial_name"],seq_no,seq_start,i),
+                verts=smpl_out.v.detach().cpu().numpy(),
+                cam_trans=cam_poses[:,:,:,:3,3].detach().cpu().numpy(),
+                cam_rots=p3d_rt.matrix_to_quaternion(cam_poses[:,:,:,:3,:3]).detach().cpu().numpy())
+
+
         # zero grad optimizer
         optim.zero_grad()
         
@@ -605,29 +693,67 @@ with trange(n_optim_iters) as t:
         # optim step
         optim.step()
 
-
-        # print loss
-        t.set_postfix({"loss":loss.item(),
+        # loss dict
+        loss_dict = {"loss":loss.item(),
                         "loss_2d":loss_2d.item(),
                         "loss_z":loss_z.item(),
                         "loss_cams":loss_cams.item(),
                         "loss_betas":loss_betas.item(),
-                        "loss_cont":loss_cont.item()})
+                        "loss_human_gp":loss_human_gp.item(),
+                        "loss_cam_gp":loss_cam_gp.item(),
+                        "loss_vp":loss_vp.item(),
+                        "loss_smpl_front":loss_smpl_in_front.item()}
+
+        # print loss
+        t.set_postfix(loss_dict)
+
+        # track losses
+        for k,v in loss_dict.items():
+            writer.add_scalar(k,v,global_step=i)
+
+        # Viz
+        if False:
+        # if i == n_optim_iters-1 or i == config["n_optim_iters_stage1"]-1:
+            full_images_paths = batch["full_im_paths"]
+            num_cams = len(full_images_paths)
+            seq_len = len(full_images_paths[0])
+            # random index
+            idx = np.random.randint(cam_ext.shape[0])
+            rend_ims = [np.zeros([seq_len,im_res[c][1],im_res[c][0],3]) for c in range(num_cams)]
+            for cam in tqdm(range(num_cams)):
+                for s in range(seq_len):
+                    im = cv2.imread(full_images_paths[cam][s])[:im_res[cam][1],:im_res[cam][0],::-1]/255.
+                    rend_ims[cam][s] = renderer[cam](smpl_out.v.view(-1,seq_len,6890,3)[idx,s].detach().cpu().numpy(),
+                                        cam_ext[idx,cam,s,:3,3].detach().cpu().numpy(),
+                                        cam_ext[idx,cam,s,:3,:3].unsqueeze(0).detach().cpu().numpy(),
+                                        im,intr=cam_intr[idx,cam].detach().cpu().numpy(),
+                                        faces=smpl.f.detach().cpu().numpy())
+                    for joint in range(j2ds.shape[3]):
+                        rend_ims[cam][s] = rend_ims[cam][s]*255
+                        cv2.circle(rend_ims[cam][s],(int(j2ds[idx,cam,s,joint,0]),
+                                    int(j2ds[idx,cam,s,joint,1])),10,(255,255,255),-1)
+                        rend_ims[cam][s] = rend_ims[cam][s]/255
+            for c in range(num_cams):
+                imageio.mimsave("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/test_{:05d}_cam_{:02d}_itr_{:04d}.gif".format(config["trial_name"],
+                            seq_no,seq_start,c,i),list(rend_ims[c][:,::2,::2]))
+                # imageio.mimsave("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/test_{:05d}_cam_{:02d}.gif".format(config["trial_name"],seq_no,seq_start,c),
+                #             [make_grid(torch.from_numpy(rend_ims[:,i]).permute(0,3,1,2),
+                #                 nrow=rend_ims.shape[0]).permute(1,2,0).cpu().numpy()[::5,::5] for i in range(rend_ims.shape[1])])
+
+
+            np.savez("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/test_{:05d}_itr_{:04d}".format(config["trial_name"],seq_no,seq_start,i),
+                verts=smpl_out.v.detach().cpu().numpy(),
+                cam_trans=cam_poses[:,:,:,:3,3].detach().cpu().numpy(),
+                cam_rots=p3d_rt.matrix_to_quaternion(cam_poses[:,:,:,:3,:3]).detach().cpu().numpy())
 
 with torch.no_grad():
-    full_cam_orient = p3d_rt.matrix_to_quaternion(cam_poses[:,:,:3,:3]).detach().cpu().numpy()
-    full_cam_orient = full_cam_orient.reshape(full_smpl_motion_latent.shape[0],seq_len,num_cams,4)
-    full_cam_orient = np.concatenate([full_cam_orient[0]]+[full_cam_orient[i,overlap:] for i in range(1,full_cam_orient.shape[0])],axis=0)
-    full_cam_position = cam_poses[:,:,:3,3].detach().cpu().numpy()
-    full_cam_position = full_cam_position.reshape(full_smpl_motion_latent.shape[0],seq_len,num_cams,3)
-    full_cam_position = np.concatenate([full_cam_position[0]]+[full_cam_position[i,overlap:] for i in range(1,full_cam_position.shape[0])],axis=0)
-    full_smpl_verts = smpl_out.v.detach().cpu().numpy()
-    full_smpl_verts = full_smpl_verts.reshape(full_smpl_motion_latent.shape[0],seq_len,smpl_out.v.shape[1],3)
-    full_smpl_verts = np.concatenate([full_smpl_verts[0]]+[full_smpl_verts[i,overlap:] for i in range(1,full_smpl_verts.shape[0])],axis=0)
-    full_smpl_shape = smpl_shape.detach().cpu().numpy()
+    final_cam_orient = p3d_rt.matrix_to_quaternion(cam_poses[:,:,:,:3,:3]).detach().cpu().numpy()
+    final_cam_position = cam_poses[:,:,:,:3,3].detach().cpu().numpy()
+    final_smpl_verts = smpl_out.v.detach().cpu().numpy()
+    final_smpl_shape = smpl_shape.detach().cpu().numpy()
+    final_cam_ext = cam_ext.detach()
 
-np.savez("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/test/{:04d}/test_{:05d}_stage2".format(seq_no,seq_start),
-    verts=full_smpl_verts,
-    cam_trans=full_cam_position.transpose(1, 0, 2)[np.newaxis],
-    cam_rots=full_cam_orient.transpose(1, 0, 2)[np.newaxis])
-            
+np.savez("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/test_final".format(config["trial_name"],seq_no),
+                verts=final_smpl_verts,
+                cam_trans=final_cam_position,
+                cam_rots=final_cam_orient)

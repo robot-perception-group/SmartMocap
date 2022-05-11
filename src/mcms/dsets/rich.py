@@ -19,11 +19,14 @@ from scipy.spatial.transform import Rotation
 from ..utils.utils import resize_with_pad
 
 # remove nose as head
-op_map2smpl = np.array([8,12,9,-1,13,10,-1,14,11,-1,19,22,1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
+op_map2smpl = np.array([8,-1,-1,-1,13,10,-1,14,11,-1,19,22,-1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
 al_map2smpl = np.array([-1,11,8,-1,12,9,-1,13,10,-1,-1,-1,1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
 smpl_map2op = np.array([12, 17, 19, 21, 16, 18, 20, 0, 2, 5, 8, 1, 4,
                              7],
                             dtype=np.int32) # Nose replaced with head, but weight should be 0
+# mapping from Vassilis's code
+[24, 12, 17, 19, 21, 16, 18, 20, 0, 2, 5, 8, 1, 4,
+                             7, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34]
 
 class rich(Dataset):
     def __init__(self,datapath):
@@ -34,6 +37,7 @@ class rich(Dataset):
         self.num_cams = len(cams_calibs) + 1
 
         cam_intrinsics = np.stack([extract_cam_param_xml(cams_calibs[i])[0] for i in range(len(cams_calibs))])
+        self.cam_extrinsics = np.stack([extract_cam_param_xml(cams_calibs[i])[1] for i in range(len(cams_calibs))])
         # copy intrinsics from first cam to last cam (freecam)
         self.cam_intrinsics = np.concatenate([cam_intrinsics, np.expand_dims(cam_intrinsics[0],axis=0)],axis=0)
 
@@ -65,24 +69,29 @@ class rich(Dataset):
                     keypoints[:,:2] = keypoints[:,:2] + bbox_top_left
                     keypoints = keypoints[op_map2smpl]
                     keypoints[op_map2smpl==-1,:] = 0
-
+                    
                     kps.append(keypoints)
-
+                except:
+                    print("No keypoints for "+ospj(d,"00","keypoints_refine",d.split("/")[-1]+"_{:02d}_keypoints.json".format(c)))
+                    kps.append(np.zeros([24,3]))
+                
+                try:
                     # load pare results
                     cams_present = sorted([int(x.split("/")[-1].split(".")[0].split("_")[-1]) for x in glob.glob(ospj(d,"00","pare_results_refine","*.pkl"))])
                     pare_pose = pkl.load(open(ospj(d,"00","pare_results_refine",d.split("/")[-1]+"_{:02d}.pkl".format(c)),"rb"))["pred_pose"][:,:22]
                     pare_results_cam.append(pare_pose[cams_present.index(c)])
                     # pare_res.append(np.stack([(Rotation.from_matrix(pare_resuls[:,i].detach().cpu().numpy())).mean().as_rotvec() for i in range(pare_resuls.shape[1])]))
 
-
                 except:
-                    print("No keypoints for "+ospj(d,"00","keypoints_refine",d.split("/")[-1]+"_{:02d}_keypoints.json".format(c)))
-                    kps.append(np.zeros([24,3]))
-                    pare_results_cam.append(copy.deepcopy(pare_results_cam[-1]))
+                    print("No PARE results for "+ospj(d,"00","pare_results_refine",d.split("/")[-1]+"_{:02d}.pkl".format(c)))
+                    if len(pare_results_cam) == 0:
+                        pare_results_cam.append(torch.eye(3).repeat(22,1,1).float().type_as(pare_res[0]))
+                    else:
+                        pare_results_cam.append(copy.deepcopy(pare_results_cam[-1]))
                 
                 im_paths.append(ospj(d,"00","images_orig",d.split("/")[-1]+"_{:02d}.png".format(c)))
 
-            j2d.append(kps)
+            j2d.append(np.stack(kps))
             full_im_path_list.append(im_paths)
             pare_res.append(torch.stack(pare_results_cam))
         
@@ -116,7 +125,7 @@ class rich(Dataset):
 
 
         
-        j2d.append(kps)
+        j2d.append(np.stack(kps))
         full_im_path_list.append(im_paths)
         pare_res.append(torch.stack(pare_results_cam))
 
@@ -130,11 +139,32 @@ class rich(Dataset):
         pare_results = torch.from_numpy(np.stack(pare_results)).float()
 
         pare_res_orient = torch.from_numpy(np.stack([Rotation.from_matrix(pare_res[i,:,0]).as_rotvec() for i in range(pare_res.shape[0])])).float()
+        
+        j2d = torch.from_numpy(np.stack(j2d)).float()
 
-        j2d = torch.from_numpy(np.array(j2d)).float()
+
+        # load GT
+        gt_trans = []
+        gt_global_orient = []
+        gt_body_pose = []
+        gt_betas = []
+        for n,d in enumerate(self.frames_dirs[idx:idx+seq_len]):
+            gt_pth = ospj("/".join(d.split("/")[:-2]),"params","{:05d}".format(idx+n),"00","results_smpl","000.pkl")
+            gt = pkl.load(open(gt_pth,"rb"))
+            gt_betas.append(gt["betas"].detach().cpu())
+            gt_trans.append(gt["transl"].detach().cpu())
+            gt_global_orient.append(gt["global_orient"].detach().cpu())
+            gt_body_pose.append(gt["body_pose"].detach().cpu())
+        gt_trans = torch.cat(gt_trans)
+        gt_global_orient = torch.cat(gt_global_orient)
+        gt_body_pose = torch.cat(gt_body_pose)
+        gt_betas = torch.cat(gt_betas)
         
 
-        return {"full_im_paths":full_im_path_list, "j2d":j2d, "cam_intr":self.cam_intrinsics, "pare_poses":pare_results, "pare_orient":pare_res_orient}
+        return {"full_im_paths":full_im_path_list, "j2d":j2d, "cam_intr":self.cam_intrinsics, 
+                    "pare_poses":pare_results, "pare_orient":pare_res_orient,
+                    "gt_trans":gt_trans, "gt_global_orient":gt_global_orient,
+                    "gt_body_pose":gt_body_pose,"gt_betas":gt_betas}
 
 
 
@@ -164,6 +194,11 @@ def extract_cam_param_xml(xml_path:str='', dtype=np.float):
 
     translation = np.array([[extrinsics_mat[3], extrinsics_mat[7], extrinsics_mat[11]]], dtype=dtype)
 
+    extrinsics = np.array([[extrinsics_mat[0], extrinsics_mat[1], extrinsics_mat[2], extrinsics_mat[3]], 
+                            [extrinsics_mat[4], extrinsics_mat[5], extrinsics_mat[6], extrinsics_mat[7]], 
+                            [extrinsics_mat[8], extrinsics_mat[9], extrinsics_mat[10], extrinsics_mat[11]],
+                            [0,0,0,1]], dtype=dtype)
+
     # t = -Rc --> c = -R^Tt
     cam_center = [  -extrinsics_mat[0]*extrinsics_mat[3] - extrinsics_mat[4]*extrinsics_mat[7] - extrinsics_mat[8]*extrinsics_mat[11],
                     -extrinsics_mat[1]*extrinsics_mat[3] - extrinsics_mat[5]*extrinsics_mat[7] - extrinsics_mat[9]*extrinsics_mat[11], 
@@ -176,4 +211,4 @@ def extract_cam_param_xml(xml_path:str='', dtype=np.float):
 
     intrinsics = np.array([[focal_length_x, 0, center[0][0]], [0, focal_length_y, center[0][1]], [0, 0, 1]], dtype=dtype)
 
-    return intrinsics, rotation, translation, cam_center, k1, k2
+    return intrinsics, extrinsics, rotation, translation, cam_center, k1, k2

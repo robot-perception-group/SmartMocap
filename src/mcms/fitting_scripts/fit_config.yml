@@ -1,26 +1,28 @@
-trial_name : rich
+trial_name : rich_test2
 mo_vae_ckpt_path : "/is/ps3/nsaini/projects/mcms/mcms_logs/2022_03_07/v000_/checkpoints/epoch:2099-step:125999.ckpt"
+bm_fname: "/home/nsaini/Datasets/smpl_models/smpl/SMPL_NEUTRAL.pkl"
 data_path : "/home/nsaini/Datasets/opencam/20220417/Niz_dance"
 
 batch_size : 1
 seq_len : 25
-loss_2d_weight : 1
-loss_z_weight : 5
-loss_cams_weight : 1000
-loss_betas_weight : 100
+loss_2d_weight : [1,1]
+loss_z_weight : [10,1]
+loss_cams_weight : [10000,100]
+loss_betas_weight : [100,10]
 n_optim_iters_stage1: 1000
 n_optim_iters : 2000
-loss_human_gp_weight : 1000
-loss_smpl_in_front_weight : 1000
-loss_cam_gp_weight : 100
-loss_vp_weight : 0
+loss_human_gp_weight : [1000,1000]
+loss_smpl_in_front_weight : [1000,1000]
+loss_cam_gp_weight : [1000,1000]
+loss_vp_weight : [20,2]
+gmcclure_sigma : 30
 lr : 0.05
 
 dset : "rich"
 use_pare_init : True
 
 seq_no : 29
-big_seq_start : 0
+big_seq_start : 5
 big_seq_end : 614
 overlap : 5
 
