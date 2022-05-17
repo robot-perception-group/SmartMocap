@@ -12,6 +12,8 @@ from torchvision import transforms
 from ..utils.utils import resize_with_pad
 import copy
 import torchgeometry as tgm
+import joblib
+from scipy.spatial.transform import Rotation
 
 # remove nose as head
 op_map2smpl = np.array([8,12,9,-1,13,10,-1,14,11,-1,19,22,1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
@@ -176,6 +178,7 @@ class copenet_real(Dataset):
         # load, crop and scale
         images = torch.zeros(2,self.seq_len,3,224,224).float()
         bbs = torch.zeros(2,self.seq_len,3).float()
+        pare_res = torch.zeros(2,self.seq_len,24,3,3).float()
         for cam in range(2):
             for t in range(self.seq_len):
                 # load
@@ -210,8 +213,24 @@ class copenet_real(Dataset):
                 # normalize the image (for resnet)
                 images[cam,t] = self.normalize(torch.from_numpy(crp_scl_image.transpose(2,0,1)).float())
 
+                # load pare results
+                pare_res_pth_split = self.db["im" + str(cam)][idx + t].split("/")
+                pare_res_fname = osp.join("/".join(pare_res_pth_split[:-2]),"pare_res","images_","pare_results",pare_res_pth_split[-1].split(".")[0]+".pkl")
+                pare_res_temp = joblib.load(pare_res_fname)["pred_pose"][:,:24]
+                
+                pare_res[cam,t,:,:,:] = torch.from_numpy(pare_res_temp[0]).float()
+
+        pare_results = []
+        for i in range(self.seq_len):
+            pare_results.append(np.stack([Rotation.from_matrix(pare_res[:,i,j]).mean().as_rotvec() for j in range(1,pare_res.shape[2])]))
+
+        pare_results = torch.from_numpy(np.stack(pare_results)).float()
+
+        pare_res_orient = torch.from_numpy(np.stack([Rotation.from_matrix(pare_res[i,:,0]).as_rotvec() for i in range(pare_res.shape[0])])).float()
+
         full_img_pth_list = [self.db["im0"][idx:idx+self.seq_len],self.db["im1"][idx:idx+self.seq_len]]
 
         return {"full_im_paths":full_img_pth_list, "images":images, "bbs":bbs, "j2d":j2d, "cam_intr":cam_intr,
+                "pare_poses":pare_results, "pare_orient":pare_res_orient,
                 "moshbetas":None, "moshorient":None, "moshtrans":None, "moshpose":None, "mosh_available":False}
 

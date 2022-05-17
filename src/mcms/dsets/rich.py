@@ -21,8 +21,8 @@ from ..utils.utils import resize_with_pad
 # remove nose as head
 op_map2smpl = np.array([8,-1,-1,-1,13,10,-1,14,11,-1,19,22,-1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
 al_map2smpl = np.array([-1,11,8,-1,12,9,-1,13,10,-1,-1,-1,1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
-smpl_map2op = np.array([12, 17, 19, 21, 16, 18, 20, 0, 2, 5, 8, 1, 4,
-                             7],
+smpl_map2op = np.array([-1,12, 17, 19, 21, 16, 18, 20, 0, 2, 5, 8, 1, 4,
+                             7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
                             dtype=np.int32) # Nose replaced with head, but weight should be 0
 # mapping from Vassilis's code
 [24, 12, 17, 19, 21, 16, 18, 20, 0, 2, 5, 8, 1, 4,
@@ -78,14 +78,14 @@ class rich(Dataset):
                 try:
                     # load pare results
                     cams_present = sorted([int(x.split("/")[-1].split(".")[0].split("_")[-1]) for x in glob.glob(ospj(d,"00","pare_results_refine","*.pkl"))])
-                    pare_pose = pkl.load(open(ospj(d,"00","pare_results_refine",d.split("/")[-1]+"_{:02d}.pkl".format(c)),"rb"))["pred_pose"][:,:22]
-                    pare_results_cam.append(pare_pose[cams_present.index(c)])
+                    pare_pose = pkl.load(open(ospj(d,"00","pare_results_refine",d.split("/")[-1]+"_{:02d}.pkl".format(c)),"rb"))["pred_pose"][:,:24]
+                    pare_results_cam.append(pare_pose[cams_present.index(c)].detach().cpu())
                     # pare_res.append(np.stack([(Rotation.from_matrix(pare_resuls[:,i].detach().cpu().numpy())).mean().as_rotvec() for i in range(pare_resuls.shape[1])]))
 
                 except:
                     print("No PARE results for "+ospj(d,"00","pare_results_refine",d.split("/")[-1]+"_{:02d}.pkl".format(c)))
                     if len(pare_results_cam) == 0:
-                        pare_results_cam.append(torch.eye(3).repeat(22,1,1).float().type_as(pare_res[0]))
+                        pare_results_cam.append(torch.eye(3).repeat(24,1,1).float())
                     else:
                         pare_results_cam.append(copy.deepcopy(pare_results_cam[-1]))
                 
@@ -113,8 +113,8 @@ class rich(Dataset):
                 kps.append(keypoints)
 
                 # load pare results
-                pare_pose = pkl.load(open(ospj(d,"00","freecam",d.split("/")[-1]+"_{:02d}_pare.pkl".format(10)),"rb"))["pred_pose"][:,:22]
-                pare_results_cam.append(pare_pose[0])
+                pare_pose = pkl.load(open(ospj(d,"00","freecam",d.split("/")[-1]+"_{:02d}_pare.pkl".format(10)),"rb"))["pred_pose"][:,:24]
+                pare_results_cam.append(pare_pose[0].detach().cpu())
 
             except:
                 import ipdb;ipdb.set_trace()
@@ -164,7 +164,8 @@ class rich(Dataset):
         return {"full_im_paths":full_im_path_list, "j2d":j2d, "cam_intr":self.cam_intrinsics, 
                     "pare_poses":pare_results, "pare_orient":pare_res_orient,
                     "gt_trans":gt_trans, "gt_global_orient":gt_global_orient,
-                    "gt_body_pose":gt_body_pose,"gt_betas":gt_betas}
+                    "gt_body_pose":gt_body_pose,"gt_betas":gt_betas,
+                    "j2d_op":j2d[:,:,smpl_map2op]}
 
 
 
