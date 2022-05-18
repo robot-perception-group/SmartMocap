@@ -29,11 +29,16 @@ smpl_map2op = np.array([-1,12, 17, 19, 21, 16, 18, 20, 0, 2, 5, 8, 1, 4,
                              7, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34]
 
 class rich(Dataset):
-    def __init__(self,datapath):
+    def __init__(self,datapath, used_cams=None):
         super().__init__()
         
         # camera calibration files
         cams_calibs = glob.glob(ospj(datapath,"calibration/*"))
+        if used_cams is not None:
+            self.used_cams = sorted(used_cams)
+        else:
+            self.used_cams = used_cams
+
         self.num_cams = len(cams_calibs) + 1
 
         cam_intrinsics = np.stack([extract_cam_param_xml(cams_calibs[i])[0] for i in range(len(cams_calibs))])
@@ -159,9 +164,15 @@ class rich(Dataset):
         gt_global_orient = torch.cat(gt_global_orient)
         gt_body_pose = torch.cat(gt_body_pose)
         gt_betas = torch.cat(gt_betas)
-        
 
-        return {"full_im_paths":full_im_path_list, "j2d":j2d, "cam_intr":self.cam_intrinsics, 
+        if self.used_cams is not None:
+            return {"full_im_paths":np.array(full_im_path_list)[self.used_cams].tolist(), "j2d":j2d[self.used_cams], "cam_intr":self.cam_intrinsics[self.used_cams], 
+                    "pare_poses":pare_results, "pare_orient":pare_res_orient[self.used_cams],
+                    "gt_trans":gt_trans, "gt_global_orient":gt_global_orient,
+                    "gt_body_pose":gt_body_pose,"gt_betas":gt_betas,
+                    "j2d_op":j2d[self.used_cams][:,:,smpl_map2op]}
+        else:    
+            return {"full_im_paths":full_im_path_list, "j2d":j2d, "cam_intr":self.cam_intrinsics, 
                     "pare_poses":pare_results, "pare_orient":pare_res_orient,
                     "gt_trans":gt_trans, "gt_global_orient":gt_global_orient,
                     "gt_body_pose":gt_body_pose,"gt_betas":gt_betas,

@@ -13,7 +13,7 @@ C.scene.collection.objects.link(empty)
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/copenet_vp_latent/0000/test_00005_itr_2999.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/rich_vp_latent2/0000/test_full_non_overlap.npz")
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 
