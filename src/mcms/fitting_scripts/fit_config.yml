@@ -1,4 +1,4 @@
-trial_name : rich_vp_latent_3
+trial_name : multi_res_test
 mo_vae_ckpt_path : "/is/ps3/nsaini/projects/mcms/mcms_logs/2022_03_07/v000_/checkpoints/epoch:2099-step:125999.ckpt"
 bm_fname: "/home/nsaini/Datasets/smpl_models/smpl/SMPL_NEUTRAL.pkl"
 data_path : "/home/nsaini/Datasets/opencam/20220417/Niz_dance"
@@ -6,17 +6,17 @@ data_path : "/home/nsaini/Datasets/opencam/20220417/Niz_dance"
 batch_size : 1
 seq_len : 25
 loss_2d_weight : [1,1,1]
-loss_z_weight : [10,10,10]
+loss_z_weight : [100,100,100]
 loss_cams_weight : [10000,10000,10000]
 loss_betas_weight : [100,100,100]
 n_optim_iters_stage0: 0
 n_optim_iters_stage1: 1000
 n_optim_iters : 2000
-loss_human_gp_weight : [10000,10000,10000]
+loss_human_gp_weight : [1.0e4,1.0e4,1.0e4]
 loss_smpl_in_front_weight : [10000,10000,10000]
-loss_cam_gp_weight : [10000,10000,10000]
+loss_cam_gp_weight : [1.0e4,1.0e4,1.0e4]
 loss_vp_weight : [100,100,100]
-gmcclure_sigma : 590
+gmcclure_sigma : 40
 lr : 0.01
 
 dset : "rich"
@@ -32,4 +32,4 @@ position_changing_cams : [7]
 orient_changing_cams : [7]
 optimize_intr : false
 
-device: "cuda"
+device: "cpu"

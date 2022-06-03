@@ -33,7 +33,7 @@ class rich(Dataset):
         super().__init__()
         
         # camera calibration files
-        cams_calibs = glob.glob(ospj(datapath,"calibration/*"))
+        cams_calibs = sorted(glob.glob(ospj(datapath,"calibration/*")))
         if used_cams is not None:
             self.used_cams = sorted(used_cams)
         else:
@@ -136,7 +136,6 @@ class rich(Dataset):
 
         pare_res = torch.stack(pare_res).detach().cpu().numpy()
 
-
         pare_results = []
         for i in range(seq_len):
             pare_results.append(np.stack([Rotation.from_matrix(pare_res[:,i,j]).mean().as_rotvec() for j in range(1,pare_res.shape[2])]))
@@ -164,19 +163,21 @@ class rich(Dataset):
         gt_global_orient = torch.cat(gt_global_orient)
         gt_body_pose = torch.cat(gt_body_pose)
         gt_betas = torch.cat(gt_betas)
-
+        
         if self.used_cams is not None:
             return {"full_im_paths":np.array(full_im_path_list)[self.used_cams].tolist(), "j2d":j2d[self.used_cams], "cam_intr":self.cam_intrinsics[self.used_cams], 
                     "pare_poses":pare_results, "pare_orient":pare_res_orient[self.used_cams],
                     "gt_trans":gt_trans, "gt_global_orient":gt_global_orient,
                     "gt_body_pose":gt_body_pose,"gt_betas":gt_betas,
-                    "j2d_op":j2d[self.used_cams][:,:,smpl_map2op]}
+                    "j2d_op":j2d[self.used_cams][:,:,smpl_map2op],
+                    "cam_extr": self.cam_extrinsics}
         else:    
             return {"full_im_paths":full_im_path_list, "j2d":j2d, "cam_intr":self.cam_intrinsics, 
                     "pare_poses":pare_results, "pare_orient":pare_res_orient,
                     "gt_trans":gt_trans, "gt_global_orient":gt_global_orient,
                     "gt_body_pose":gt_body_pose,"gt_betas":gt_betas,
-                    "j2d_op":j2d[:,:,smpl_map2op]}
+                    "j2d_op":j2d[:,:,smpl_map2op],
+                    "cam_extr": self.cam_extrinsics}
 
 
 

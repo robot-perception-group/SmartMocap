@@ -4,6 +4,8 @@ from human_body_prior.body_model.body_model import BodyModel
 import numpy as np
 import torch
 import math
+import matplotlib.pyplot as plt
+import copy
 
 D = bpy.data
 C = bpy.context
@@ -13,7 +15,7 @@ C.scene.collection.objects.link(empty)
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/rich_vp_latent2/0000/test_full_non_overlap.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/rich_vp_latent_full_2/0000/test_final.npz")
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 
@@ -26,15 +28,15 @@ try:
 except:
     cams_available = False
 
+cam_stl_obj = []
 if cams_available:
-    bpy.ops.import_mesh.stl(filepath="/is/ps3/nsaini/projects/mcms/cam.stl")
-    cam_stl_obj = [obj for obj in bpy.context.scene.objects if obj.name=="cam"]
-    cam_stl_obj[0].name = "cam_0"
-    for n in range(1,num_cams):
-        cam_stl_obj.append(cam_stl_obj[0].copy())
+    for n in range(0,num_cams):
+        bpy.ops.import_mesh.stl(filepath="/is/ps3/nsaini/projects/mcms/cam.stl")
+        cam_stl_obj.append([obj for obj in bpy.context.scene.objects if obj.name=="cam"][0])
         cam_stl_obj[-1].name = "cam_"+str(n)
-        bpy.context.collection.objects.link(cam_stl_obj[-1])
+        cam_stl_obj[-1].parent = empty
 
+cmap = plt.get_cmap("Set1",10)
 
 
 motion_range = [0]
@@ -48,10 +50,14 @@ for idx in motion_range:
     C.scene.collection.objects.link(smpl_obj)
     smpl_obj.parent = empty
     smpl_obj.location[0] = idx
+    mat = bpy.data.materials.new("mat_"+str(idx))
+    mat.diffuse_color = cmap(0)
+    smpl_mesh.materials.append(mat)
+    smpl_obj.show_transparent = True
 
+    cam_mat = []
     if cams_available:
         for cam, cam_obj in enumerate(cam_stl_obj):
-            cam_obj.parent = empty
             cam_obj.location[0] = cam_trans[cam,0,0]
             cam_obj.location[1] = cam_trans[cam,0,1]
             cam_obj.location[2] = cam_trans[cam,0,2]
@@ -60,6 +66,10 @@ for idx in motion_range:
             cam_obj.scale[2] = 10
             cam_obj.rotation_mode = 'QUATERNION'
             cam_obj.rotation_quaternion = cam_rots[cam,0]
+            cam_mat.append(bpy.data.materials.new("cam_mat_"+str(cam)))
+            cam_mat[-1].diffuse_color = cmap(cam+1)
+            cam_obj.data.materials.append(cam_mat[-1])
+            cam_obj.show_transparent = True
 
 def anim_handler(scene):
     frame=scene.frame_current

@@ -570,17 +570,21 @@ with torch.no_grad():
 if config["optimize_intr"]:
     optim = torch.optim.Adam(cam_ext_orient + cam_ext_position + [focal_len, smpl_motion, smpl_shape],lr=lr)
 else:
-    optim1 = torch.optim.Adam(cam_ext_orient + cam_ext_position + [smpl_orient_rf],lr=lr)
-    optim2 = torch.optim.Adam(cam_ext_orient + cam_ext_position + [smpl_art_motion_vp_latent, smpl_trans_rf, smpl_orient_rf, smpl_shape],lr=lr)
+    optim0 = torch.optim.Adam(cam_orient + cam_position,lr=lr)
+    optim1 = torch.optim.Adam(cam_orient + cam_position,lr=lr)
+    optim2 = torch.optim.Adam(cam_orient + cam_position + [smpl_art_motion_vp_latent, smpl_trans_rf, smpl_orient_rf, smpl_shape],lr=lr)
 
 with trange(n_optim_iters) as t:
     for i in t:
 
-        if i < config["n_optim_iters_stage1"]:
+        if i < config["n_optim_iters_stage0"]:
             stage = 0
+            optim = optim0
+        elif i > config["n_optim_iters_stage0"] and i < config["n_optim_iters_stage1"]:
+            stage = 1
             optim = optim1
         else:
-            stage = 1
+            stage = 2
             optim = optim2
 
         ################### FWD pass #####################
@@ -773,10 +777,13 @@ with torch.no_grad():
     final_cam_position = cam_poses[:,:,:,:3,3].detach().cpu().numpy()
     final_smpl_verts = smpl_out.v.detach().cpu().numpy()
     final_smpl_shape = smpl_shape.detach().cpu().numpy()
+    final_smpl_motion = smpl_motion.detach().cpu().numpy()
     final_cam_ext = cam_ext.detach()
 
 np.savez("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/test_final".format(config["trial_name"],seq_no),
                 verts=final_smpl_verts,
+                shape=final_smpl_shape,
+                motion=final_smpl_motion,
                 cam_trans=final_cam_position,
                 cam_rots=final_cam_orient)
 
