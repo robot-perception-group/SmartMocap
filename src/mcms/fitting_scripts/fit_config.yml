@@ -1,7 +1,9 @@
-trial_name : multi_res_test
+trial_name : multi_res_valseq2
 mo_vae_ckpt_path : "/is/ps3/nsaini/projects/mcms/mcms_logs/2022_03_07/v000_/checkpoints/epoch:2099-step:125999.ckpt"
 bm_fname: "/home/nsaini/Datasets/smpl_models/smpl/SMPL_NEUTRAL.pkl"
-data_path : "/home/nsaini/Datasets/opencam/20220417/Niz_dance"
+dset : "rich"
+# data_path : "/home/nsaini/Datasets/opencam/20220417/Niz_dance"
+data_path : "/ps/project/datasets/AirCap_ICCV19/RICH_IPMAN/val/2021-06-15_Multi_IOI_ID_00228_Yoga1"
 
 batch_size : 1
 seq_len : 25
@@ -19,7 +21,6 @@ loss_vp_weight : [100,100,100]
 gmcclure_sigma : 40
 lr : 0.01
 
-dset : "rich"
 use_pare_init : True
 
 seq_no : 29

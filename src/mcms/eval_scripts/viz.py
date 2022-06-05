@@ -15,14 +15,14 @@ C.scene.collection.objects.link(empty)
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/rich_vp_latent_full_2/0000/test_final.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/multi_res_2/0000/stage_04/seq_start_00005.npz")
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 
 smpl_out = {"0":data["verts"]}
 try:
-    cam_trans = data["cam_trans"][0]
-    cam_rots = data["cam_rots"][0]
+    cam_trans = data["cam_trans"]
+    cam_rots = data["cam_rots"]
     num_cams = cam_trans.shape[0]
     cams_available = True
 except:
