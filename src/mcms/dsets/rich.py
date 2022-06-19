@@ -49,6 +49,12 @@ class rich(Dataset):
         self.frames_dirs = sorted(glob.glob(ospj(datapath,"data/*")))
         self.n_frames = len(self.frames_dirs)
 
+        # imageresolution
+        self.im_res = []
+        for c in range(self.num_cams-1):
+            self.im_res.append(cv2.imread(ospj(self.frames_dirs[0],"00","images_orig",self.frames_dirs[0].split("/")[-1]+"_{:02d}.png".format(c))).shape[:2])
+        self.im_res.append(cv2.imread(ospj(self.frames_dirs[0],"00","freecam",self.frames_dirs[0].split("/")[-1]+"_{:02d}_images_orig.png".format(10))).shape[:2])
+        self.im_res = np.array(self.im_res)
         
     def __len__(self):
         return self.n_frames
@@ -60,10 +66,12 @@ class rich(Dataset):
         j2d = []
         full_im_path_list = []
         pare_res = []
+        pare_cams = []
         for c in range(self.num_cams-1):
             kps = []
             im_paths = []
             pare_results_cam = []
+            pare_cams_res = []
             for d in self.frames_dirs[idx:idx+seq_len]:
                 try:
                     bbox = json.load(open(ospj(d,"00","bbox_refine",d.split("/")[-1]+"_{:02d}.json".format(c)),"r"))
@@ -79,11 +87,20 @@ class rich(Dataset):
                 except:
                     print("No keypoints for "+ospj(d,"00","keypoints_refine",d.split("/")[-1]+"_{:02d}_keypoints.json".format(c)))
                     kps.append(np.zeros([24,3]))
-                
+
                 try:
                     # load pare results
                     cams_present = sorted([int(x.split("/")[-1].split(".")[0].split("_")[-1]) for x in glob.glob(ospj(d,"00","pare_results_refine","*.pkl"))])
-                    pare_pose = pkl.load(open(ospj(d,"00","pare_results_refine",d.split("/")[-1]+"_{:02d}.pkl".format(c)),"rb"))["pred_pose"][:,:24]
+                    pare_pkl = pkl.load(open(ospj(d,"00","pare_results_refine",d.split("/")[-1]+"_{:02d}.pkl".format(c)),"rb"))
+                    
+                    pare_cam = convert_pare_to_full_img_cam(pare_pkl["pred_cam"][cams_present.index(c)].unsqueeze(0),
+                                    bbox["y2"]-bbox["y1"],
+                                    torch.tensor([(bbox["x1"]+bbox["x2"])/2,(bbox["y1"]+bbox["y2"])/2]).type_as(pare_pkl["pred_cam"]).unsqueeze(0),
+                                    self.im_res[cams_present.index(c),1],
+                                    self.im_res[cams_present.index(c),0],
+                                    self.cam_intrinsics[cams_present.index(c),0,0]+self.cam_intrinsics[cams_present.index(c),1,1]/2)
+                    pare_cams_res.append(pare_cam.detach().cpu())
+                    pare_pose = pare_pkl["pred_pose"][:,:24]
                     pare_results_cam.append(pare_pose[cams_present.index(c)].detach().cpu())
                     # pare_res.append(np.stack([(Rotation.from_matrix(pare_resuls[:,i].detach().cpu().numpy())).mean().as_rotvec() for i in range(pare_resuls.shape[1])]))
 
@@ -91,19 +108,23 @@ class rich(Dataset):
                     print("No PARE results for "+ospj(d,"00","pare_results_refine",d.split("/")[-1]+"_{:02d}.pkl".format(c)))
                     if len(pare_results_cam) == 0:
                         pare_results_cam.append(torch.eye(3).repeat(24,1,1).float())
+                        pare_cams_res.append(torch.zeros(1,3).float())
                     else:
                         pare_results_cam.append(copy.deepcopy(pare_results_cam[-1]))
+                        pare_cams_res.append(copy.deepcopy(pare_cams_res[-1]))
                 
                 im_paths.append(ospj(d,"00","images_orig",d.split("/")[-1]+"_{:02d}.png".format(c)))
 
             j2d.append(np.stack(kps))
             full_im_path_list.append(im_paths)
             pare_res.append(torch.stack(pare_results_cam))
+            pare_cams.append(torch.cat(pare_cams_res))
         
         # add keypoints for freecam
         kps = []
         im_paths = []
         pare_results_cam = []
+        pare_cams_res = []
         for d in self.frames_dirs[idx:idx+seq_len]:
             try:
                 bbox = json.load(open(ospj(d,"00","freecam",d.split("/")[-1]+"_{:02d}_bbox.json".format(10)),"r"))
@@ -118,13 +139,23 @@ class rich(Dataset):
                 kps.append(keypoints)
 
                 # load pare results
-                pare_pose = pkl.load(open(ospj(d,"00","freecam",d.split("/")[-1]+"_{:02d}_pare.pkl".format(10)),"rb"))["pred_pose"][:,:24]
+                pare_pkl = pkl.load(open(ospj(d,"00","freecam",d.split("/")[-1]+"_{:02d}_pare.pkl".format(10)),"rb"))
+                pare_pose = pare_pkl["pred_pose"][:,:24]
                 pare_results_cam.append(pare_pose[0].detach().cpu())
+
+                pare_cam = convert_pare_to_full_img_cam(pare_pkl["pred_cam"][-1].unsqueeze(0),
+                                    bbox["y2"]-bbox["y1"],
+                                    torch.tensor([(bbox["x1"]+bbox["x2"])/2,(bbox["y1"]+bbox["y2"])/2]).type_as(pare_pkl["pred_cam"]).unsqueeze(0),
+                                    self.im_res[-1,1],
+                                    self.im_res[-1,0],
+                                    self.cam_intrinsics[7,0,0]+self.cam_intrinsics[7,1,1]/2)
+                pare_cams_res.append(pare_cam.detach().cpu())
 
             except:
                 import ipdb;ipdb.set_trace()
                 kps.append(np.zeros([24,3]))
                 pare_results_cam.append(copy.deepcopy(pare_results_cam[-1]))
+                pare_cams_res.append(copy.deepcopy(pare_cams_res[-1]))
 
             im_paths.append(ospj(d,"00","freecam",d.split("/")[-1]+"_{:02d}_images_orig.png".format(10)))
 
@@ -133,8 +164,10 @@ class rich(Dataset):
         j2d.append(np.stack(kps))
         full_im_path_list.append(im_paths)
         pare_res.append(torch.stack(pare_results_cam))
-
+        pare_cams.append(torch.cat(pare_cams_res))
         pare_res = torch.stack(pare_res).detach().cpu().numpy()
+        pare_cams = torch.stack(pare_cams).detach()
+
 
         pare_results = []
         for i in range(seq_len):
@@ -170,19 +203,17 @@ class rich(Dataset):
                     "gt_trans":gt_trans, "gt_global_orient":gt_global_orient,
                     "gt_body_pose":gt_body_pose,"gt_betas":gt_betas,
                     "j2d_op":j2d[self.used_cams][:,:,smpl_map2op],
-                    "cam_extr": self.cam_extrinsics}
+                    "cam_extr": self.cam_extrinsics,
+                    "pare_cams":pare_cams[self.used_cams]}
         else:    
             return {"full_im_paths":full_im_path_list, "j2d":j2d, "cam_intr":self.cam_intrinsics, 
                     "pare_poses":pare_results, "pare_orient":pare_res_orient,
                     "gt_trans":gt_trans, "gt_global_orient":gt_global_orient,
                     "gt_body_pose":gt_body_pose,"gt_betas":gt_betas,
                     "j2d_op":j2d[:,:,smpl_map2op],
-                    "cam_extr": self.cam_extrinsics}
+                    "cam_extr": self.cam_extrinsics,
+                    "pare_cams":pare_cams}
 
-
-
-
-        
 
 
 
@@ -225,3 +256,41 @@ def extract_cam_param_xml(xml_path:str='', dtype=np.float):
     intrinsics = np.array([[focal_length_x, 0, center[0][0]], [0, focal_length_y, center[0][1]], [0, 0, 1]], dtype=dtype)
 
     return intrinsics, extrinsics, rotation, translation, cam_center, k1, k2
+
+
+def convert_pare_to_full_img_cam(
+        pare_cam, bbox_height, bbox_center,
+        img_w, img_h, focal_length, crop_res=224):
+    # Converts weak perspective camera estimated by PARE in
+    # bbox coords to perspective camera in full image coordinates
+    # from https://arxiv.org/pdf/2009.06549.pdf
+    # taken from PARE code
+    s, tx, ty = pare_cam[:, 0], pare_cam[:, 1], pare_cam[:, 2]
+    tz = 2 * focal_length / (bbox_height * s)
+
+    cx = 2 * (bbox_center[:, 0] - (img_w / 2.)) / (s * bbox_height)
+    cy = 2 * (bbox_center[:, 1] - (img_h / 2.)) / (s * bbox_height)
+
+    cam_t = torch.stack([tx + cx, ty + cy, tz], dim=-1)
+
+    return cam_t
+
+def convert_crop_cam_to_orig_img(cam, bbox, img_width, img_height):
+    '''
+    Convert predicted camera from cropped image coordinates
+    to original image coordinates
+    :param cam (ndarray, shape=(3,)): weak perspective camera in cropped img coordinates
+    :param bbox (ndarray, shape=(4,)): bbox coordinates (c_x, c_y, h)
+    :param img_width (int): original image width
+    :param img_height (int): original image height
+    :return:
+    '''
+    cx, cy, h = bbox[:,0], bbox[:,1], bbox[:,2]
+    hw, hh = img_width / 2., img_height / 2.
+    sx = cam[:,0] * (1. / (img_width / h))
+    sy = cam[:,0] * (1. / (img_height / h))
+    tx = ((cx - hw) / hw / sx) + cam[:,1]
+    ty = ((cy - hh) / hh / sy) + cam[:,2]
+    orig_cam = np.stack([sx, sy, tx, ty]).T
+    return orig_cam
+

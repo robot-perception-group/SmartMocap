@@ -15,7 +15,13 @@ C.scene.collection.objects.link(empty)
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/multi_res_2/0000/stage_04/seq_start_00005.npz")
+# 114
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/volley_data3/0000/stage_02/_seq_start_01450.npz")
+# 414
+# data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/copenet_7/0000/stage_02/_seq_start_03000.npz")
+# 599
+# data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/multi_res_rich_5_j3dS_humor_comp/0000/stage_02/_seq_start_00005.npz")
+
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 

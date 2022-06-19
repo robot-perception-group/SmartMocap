@@ -9,6 +9,7 @@ import sys
 import cv2
 import numpy as np
 from torchvision import transforms
+from pytorch3d.transforms import rotation_conversions as p3d_rt
 from ..utils.utils import resize_with_pad
 import copy
 import torchgeometry as tgm
@@ -16,7 +17,7 @@ import joblib
 from scipy.spatial.transform import Rotation
 
 # remove nose as head
-op_map2smpl = np.array([8,12,9,-1,13,10,-1,14,11,-1,19,22,1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
+op_map2smpl = np.array([8,-1,-1,-1,13,10,-1,14,11,-1,19,22,1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
 al_map2smpl = np.array([-1,11,8,-1,12,9,-1,13,10,-1,-1,-1,1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
 dlc_map2smpl = np.array([-1,3,2,-1,4,1,-1,5,0,-1,-1,-1,-1,-1,-1,-1,9,8,10,7,11,6,-1,-1])
 
@@ -155,6 +156,14 @@ class copenet_real(Dataset):
             # sequence length
             self.seq_len = hparams["data_seq_len"]
 
+            # get airpose initialization
+            fname = "/is/ps3/nsaini/projects/copenet_real/copenet_logs/copenet_twoview/version_5_cont_limbwght/checkpoints/epoch=761.pkl"
+            res = pkl.load(open(fname,"rb"))
+            self.airpose_init_smpl_angles = torch.stack([torch.cat([i["output"]["pred_angles0"] for i in res[1]]),
+                                                torch.cat([i["output"]["pred_angles1"] for i in res[1]])])
+            self.airpose_init_cam = torch.stack([torch.cat([i["output"]["pred_smpltrans0"] for i in res[1]])
+                                        ,torch.cat([i["output"]["pred_smpltrans1"] for i in res[1]])])
+
         else:
             sys.exit("invalid datapath !!")
 
@@ -179,6 +188,7 @@ class copenet_real(Dataset):
         images = torch.zeros(2,self.seq_len,3,224,224).float()
         bbs = torch.zeros(2,self.seq_len,3).float()
         pare_res = torch.zeros(2,self.seq_len,24,3,3).float()
+        pare_cams = torch.zeros(2,self.seq_len,3).float()
         for cam in range(2):
             for t in range(self.seq_len):
                 # load
@@ -216,9 +226,18 @@ class copenet_real(Dataset):
                 # load pare results
                 pare_res_pth_split = self.db["im" + str(cam)][idx + t].split("/")
                 pare_res_fname = osp.join("/".join(pare_res_pth_split[:-2]),"pare_res","images_","pare_results",pare_res_pth_split[-1].split(".")[0]+".pkl")
-                pare_res_temp = joblib.load(pare_res_fname)["pred_pose"][:,:24]
+                if osp.exists(pare_res_fname):
+                    pare_res_pkl = joblib.load(pare_res_fname)
+                    pare_cams[cam,t,:] = torch.from_numpy(pare_res_pkl["pred_cam_t"][0,:]).float()
+                    pare_res_temp = pare_res_pkl["pred_pose"][0,:24]
+                elif t != 0:
+                    pare_res_temp = pare_res[cam,t-1,:24].detach().cpu().numpy()
+                    pare_cams[cam,t,:] = pare_cams[cam,t-1,:]
+                else:
+                    pare_res_temp = np.eye(3)[np.newaxis].repeat(24,axis=0)
+                    pare_cams[cam,t,:] = torch.tensor([0,0,45]).float()
                 
-                pare_res[cam,t,:,:,:] = torch.from_numpy(pare_res_temp[0]).float()
+                pare_res[cam,t,:,:,:] = torch.from_numpy(pare_res_temp).float()
 
         pare_results = []
         for i in range(self.seq_len):
@@ -230,7 +249,17 @@ class copenet_real(Dataset):
 
         full_img_pth_list = [self.db["im0"][idx:idx+self.seq_len],self.db["im1"][idx:idx+self.seq_len]]
 
+        # airpose init
+        airpose_cams = self.airpose_init_cam[:,idx:idx+self.seq_len].float()
+        airpose_orient = self.airpose_init_smpl_angles[:,idx:idx+self.seq_len,0].float()
+        airpose_poses = []
+        for i in range(idx,idx+self.seq_len):
+            airpose_poses.append(np.stack([Rotation.from_matrix(p3d_rt.axis_angle_to_matrix(self.airpose_init_smpl_angles[:,i,j]).numpy()).mean().as_rotvec() for j in 
+                                range(1,self.airpose_init_smpl_angles.shape[2])]))
+        airpose_poses = torch.from_numpy(np.stack(airpose_poses)).float()
+
+        # pare keyword is used in the name to make compatible with the code, actually these initialization are from airpose
         return {"full_im_paths":full_img_pth_list, "images":images, "bbs":bbs, "j2d":j2d, "cam_intr":cam_intr,
-                "pare_poses":pare_results, "pare_orient":pare_res_orient,
+                "pare_poses":airpose_poses, "pare_orient":airpose_orient, "pare_cams":airpose_cams,
                 "moshbetas":None, "moshorient":None, "moshtrans":None, "moshpose":None, "mosh_available":False}
 

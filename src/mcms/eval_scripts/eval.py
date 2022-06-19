@@ -11,17 +11,24 @@ import cv2
 from mcms.dsets import h36m, copenet_real, rich
 from savitr_pe.datasets import savitr_dataset
 from mcms.utils.utils import to_homogeneous
+import sys
+import glob
+import pickle as pkl
 
 
-res_dir = "/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/rich_vp_latent_3/0000"
+res_dir = sys.argv[1]
+
 # load results
-res = np.load(ospj(res_dir, "test_final.npz"))
+final_stage_res = glob.glob(ospj(sorted(glob.glob(os.path.join(res_dir,"stage_*")))[-1],"_*.pkl"))
+if len(final_stage_res) > 1:
+    import ipdb;ipdb.set_trace()
+
+res = pkl.load(open(final_stage_res[0],"rb"))
 
 
 # Params
 config = yaml.safe_load(open(ospj(res_dir,"config.yml")))
 batch_size = config["batch_size"]
-seq_len = config["seq_len"]
 loss_2d_weight = config["loss_2d_weight"]
 loss_z_weight = config["loss_z_weight"]
 loss_cams_weight = config["loss_cams_weight"]
@@ -43,6 +50,10 @@ device = torch.device(config["device"])
 # load smpl model
 smpl = BodyModel(bm_fname=hparams["model_smpl_neutral_path"]).to(device)
 
+# vposer model
+vp_model = load_model(hparams["model_vposer_path"], model_code=VPoser,remove_words_in_model_weights="vp_model.")[0].to(device)
+vp_model.eval()
+
 # Dataloader
 if dset.lower() == "h36m":
     ds = h36m.h36m(hparams,used_cams=config["cams_used"])
@@ -52,7 +63,7 @@ if dset.lower() == "h36m":
     im_res = [[1000,1000],[1000,1000],[1000,1000],[1000,1000]]
 elif dset.lower() == "copenet_real":
     hparams["data_datapath"] = "/home/nsaini/Datasets/copenet_data"
-    ds = copenet_real.copenet_real(hparams,range(0,7000),used_cams=config["cams_used"])
+    ds = copenet_real.copenet_real(hparams,range(0,7000))
     fps_scl = 1
     viz_dwnsample = 1
     im_res=[[1920,1080],[1920,1080]]
@@ -64,15 +75,14 @@ elif dset.lower() == "savitr":
     fps_scl = 1
     viz_dwnsample = 1
 elif dset.lower() == "rich":
-    hparams["data_datapath"] = "/ps/project/datasets/AirCap_ICCV19/RICH_IPMAN/test/2021-06-15_Multi_IOI_ID_00186_Yoga1"
-    ds = rich.rich(hparams["data_datapath"],used_cams=config["cams_used"])
+    ds = rich.rich(config["data_path"],used_cams=config["cams_used"])
     im_res = [[4112,3008],[4112,3008],[4112,3008],[3008,4112],[4112,3008],[3008,4112],[4112,3008],[4112,3008]]
     fps_scl = 1
     viz_dwnsample = 1
 
 
 seq_start = big_seq_start
-seq_len = res["cam_trans"].shape[2]
+seq_len = res["smpl_trans"].shape[0]
 if dset.lower() == "h36m":
     # get batch
     batch = ds.__getitem__(seq_no,seq_start,seq_len)
@@ -98,14 +108,14 @@ gt_j3d_zero_trans_orient = smpl.forward(root_orient = torch.zeros(gt_global_orie
                                             betas = gt_betas).Jtr[:,:22]
 
 # load results
-res_trans = torch.from_numpy(res["motion"][:,:3]).float().to(device)
-res_global_orient = p3d_rt.axis_angle_to_matrix(torch.from_numpy(res["motion"][:,3:6]).float().to(device))
+res_trans = res["smpl_trans"].float().to(device)
+res_global_orient = res["smpl_orient"].float().to(device)
 res_smpl_root_pose = to_homogeneous(res_global_orient,res_trans)
-res_body_pose = torch.from_numpy(res["motion"][:,6:]).float().to(device)
-res_betas = torch.from_numpy(res["shape"]).float().to(device)
-res_cam_rots = p3d_rt.quaternion_to_matrix(torch.from_numpy(res["cam_rots"]).float().to(device))
-res_cam_trans = torch.from_numpy(res["cam_trans"]).float().to(device)
-res_cam_poses = to_homogeneous(res_cam_rots,res_cam_trans)[0]
+res_body_pose = vp_model.decode(res["smpl_art_motion_vp_latent"])["pose_body"].float().to(device).reshape(seq_len,63)
+res_betas = res["smpl_shape"].float().to(device)
+res_cam_rots = torch.cat([x.repeat(1,seq_len,1,1) if x.shape[1] == 1 else x for x in res["cam_orient"]]).float().to(device)
+res_cam_trans = torch.cat([x.repeat(1,seq_len,1) if x.shape[1] == 1 else x for x in res["cam_position"]]).float().to(device)
+res_cam_poses = to_homogeneous(res_cam_rots,res_cam_trans)
 res_origin_wrt_cam0 = torch.inverse(res_cam_poses[0:1,0:1])
 res_cam_poses_wrt_cam0 = torch.matmul(res_origin_wrt_cam0,res_cam_poses)
 res_smpl_root_pose_wrt_cam0 = torch.matmul(res_origin_wrt_cam0,res_smpl_root_pose)

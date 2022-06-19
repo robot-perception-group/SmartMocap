@@ -169,7 +169,7 @@ dependencies:
   - python=3.8.12=h12debd9_0
   - python-dateutil=2.8.2=pyhd3eb1b0_0
   - python_abi=3.8=2_cp38
-  - pytorch=1.10.1=py3.8_cuda11.3_cudnn8.2.0_0
+  - pytorch=1.10.2=py3.8_cuda11.3_cudnn8.2.0_0
   - pytorch-lightning=1.5.7=pyhd8ed1ab_0
   - pytorch-mutex=1.0=cuda
   - pyyaml=6.0=py38h7f8727e_1
@@ -190,7 +190,7 @@ dependencies:
   - tensorboard-plugin-wit=1.6.0=py_0
   - threadpoolctl=2.1.0=pyh5ca1d4c_0
   - tk=8.6.11=h1ccaba5_0
-  - torchaudio=0.10.1=py38_cu113
+  # - torchaudio=0.10.1=py38_cu113
   - torchmetrics=0.6.2=pyhd8ed1ab_0
   - torchvision=0.11.2=py38_cu113
   - tornado=6.1=py38h27cfd23_0
