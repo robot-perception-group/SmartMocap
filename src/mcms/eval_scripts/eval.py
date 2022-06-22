@@ -1,3 +1,4 @@
+from concurrent.futures import process
 import numpy as np
 import os
 from os.path import join as ospj
@@ -10,10 +11,12 @@ import torch
 import cv2
 from mcms.dsets import h36m, copenet_real, rich
 from savitr_pe.datasets import savitr_dataset
-from mcms.utils.utils import to_homogeneous
+from mcms.utils.utils import proper_smpl_fwd, to_homogeneous, get_norm_poses
 import sys
 import glob
 import pickle as pkl
+import json
+import trimesh
 
 
 res_dir = sys.argv[1]
@@ -29,16 +32,7 @@ res = pkl.load(open(final_stage_res[0],"rb"))
 # Params
 config = yaml.safe_load(open(ospj(res_dir,"config.yml")))
 batch_size = config["batch_size"]
-loss_2d_weight = config["loss_2d_weight"]
-loss_z_weight = config["loss_z_weight"]
-loss_cams_weight = config["loss_cams_weight"]
-loss_betas_weight = config["loss_betas_weight"]
 n_optim_iters = config["n_optim_iters"]
-loss_human_gp_weight = config["loss_human_gp_weight"]
-loss_cam_gp_weight = config["loss_cam_gp_weight"]
-loss_vp_weight = config["loss_vp_weight"]
-loss_smpl_in_front_weight = config["loss_smpl_in_front_weight"]
-lr = config["lr"]
 dset = config["dset"]
 seq_no = config["seq_no"]
 big_seq_start = config["big_seq_start"]
@@ -89,44 +83,64 @@ if dset.lower() == "h36m":
 else:
     batch = ds.__getitem__(seq_start,seq_len)
 
+start_offset = 10
 
-# gt params
-gt_trans = batch["gt_trans"].float().to(device)
-gt_global_orient = batch["gt_global_orient"].float().to(device)
-gt_betas = batch["gt_betas"].float().to(device)
-gt_body_pose = batch["gt_body_pose"].float().to(device)
-gt_cam_poses = torch.inverse(torch.from_numpy(batch["cam_extr"]).float().to(device))
-gt_cam_rots = gt_cam_poses[:,:3,:3]
-gt_cam_trans = gt_cam_poses[:,:3,3]
-gt_j3d_zero_trans = smpl.forward(root_orient = p3d_rt.matrix_to_axis_angle(gt_global_orient).squeeze(1),
-                                            pose_body = p3d_rt.matrix_to_axis_angle(gt_body_pose).reshape(-1,69)[:,:63],
-                                            trans = torch.zeros(gt_trans.shape[0],3).type_as(gt_trans),
-                                            betas = gt_betas).Jtr[:,:22]
-gt_j3d_zero_trans_orient = smpl.forward(root_orient = torch.zeros(gt_global_orient.shape[0],3).type_as(gt_global_orient),
-                                            pose_body = p3d_rt.matrix_to_axis_angle(gt_body_pose).reshape(-1,69)[:,:63],
-                                            trans = torch.zeros(gt_trans.shape[0],3).type_as(gt_trans),
-                                            betas = gt_betas).Jtr[:,:22]
 
 # load results
-res_trans = res["smpl_trans"].float().to(device)
-res_global_orient = res["smpl_orient"].float().to(device)
+res_trans = res["smpl_trans"].float().to(device)[start_offset:]
+res_global_orient = res["smpl_orient"].float().to(device)[start_offset:]
 res_smpl_root_pose = to_homogeneous(res_global_orient,res_trans)
-res_body_pose = vp_model.decode(res["smpl_art_motion_vp_latent"])["pose_body"].float().to(device).reshape(seq_len,63)
+res_body_pose = vp_model.decode(res["smpl_art_motion_vp_latent"])["pose_body"].float().to(device).reshape(seq_len,63)[start_offset:]
 res_betas = res["smpl_shape"].float().to(device)
-res_cam_rots = torch.cat([x.repeat(1,seq_len,1,1) if x.shape[1] == 1 else x for x in res["cam_orient"]]).float().to(device)
-res_cam_trans = torch.cat([x.repeat(1,seq_len,1) if x.shape[1] == 1 else x for x in res["cam_position"]]).float().to(device)
-res_cam_poses = to_homogeneous(res_cam_rots,res_cam_trans)
-res_origin_wrt_cam0 = torch.inverse(res_cam_poses[0:1,0:1])
-res_cam_poses_wrt_cam0 = torch.matmul(res_origin_wrt_cam0,res_cam_poses)
-res_smpl_root_pose_wrt_cam0 = torch.matmul(res_origin_wrt_cam0,res_smpl_root_pose)
-res_j3d_zero_trans = smpl.forward(root_orient = p3d_rt.matrix_to_axis_angle(res_global_orient),
-                                            pose_body = res_body_pose,
-                                            trans = torch.zeros(res_trans.shape[0],3).type_as(res_trans),
-                                            betas = res_betas.repeat(res_trans.shape[0],1)).Jtr[:,:22]
-res_j3d_zero_trans_orient = smpl.forward(root_orient = torch.zeros(res_global_orient.shape[0],3).type_as(res_global_orient),
-                                            pose_body = res_body_pose,
-                                            trans = torch.zeros(res_trans.shape[0],3).type_as(res_trans),
-                                            betas = res_betas.repeat(res_trans.shape[0],1)).Jtr[:,:22]
+res_cam_extr_rots = torch.cat([x.repeat(1,seq_len,1,1) if x.shape[1] == 1 else x for x in res["cam_orient"]]).float().to(device)
+res_cam_extr_trans = torch.cat([x.repeat(1,seq_len,1) if x.shape[1] == 1 else x for x in res["cam_position"]]).float().to(device)
+res_cam_poses = torch.inverse(to_homogeneous(res_cam_extr_rots,res_cam_extr_trans)[:,start_offset:])
+res_trans_zero_corr = res_trans.detach().clone()
+res_trans_zero_corr[:,:2] = res_trans_zero_corr[:,:2] - res_trans_zero_corr[0,:2]
+res_norm_poses,res_norm_tfm = get_norm_poses(torch.cat([p3d_rt.matrix_to_axis_angle(res_global_orient),res_body_pose],dim=1),res_trans)
+res_cam_poses[:,:,:2,3] = res_cam_poses[:,:,:2,3] - res_trans[0,:2]
+res_cam_poses = torch.matmul(to_homogeneous(res_norm_tfm,torch.zeros(1,3)), res_cam_poses)
+res_smplout = smpl.forward(root_orient=res_norm_poses[:,3:6],
+                                    pose_body = res_norm_poses[:,6:69],
+                                    trans = res_norm_poses[:,:3],
+                                    betas = res_betas)
+
+# gt params
+ioi2scan_pose = json.load(open(ospj(config["data_path"],"cam2scan.json"),"r"))
+ground_z_offset = torch.from_numpy(np.mean(trimesh.load(ospj(config["data_path"],"ground_mesh.ply"),process=False).vertices,axis=0)).float().to(device)
+ioi2scan_orient = torch.from_numpy(np.array(ioi2scan_pose["R"])).float().to(device).T
+ioi2scan_position = torch.from_numpy(np.array(ioi2scan_pose["t"])).float().to(device) - ground_z_offset
+ioi2scan_pose = to_homogeneous(ioi2scan_orient,ioi2scan_position)
+gt_betas = batch["gt_betas"].float().to(device)
+gt_body_pose = batch["gt_body_pose"].float().to(device)
+pelvis_cam0 = smpl.forward(betas=gt_betas).Jtr[:,0,:]
+gt_root_pose = torch.matmul(ioi2scan_pose.unsqueeze(0),
+                to_homogeneous(batch["gt_global_orient"].float().to(device).squeeze(1),batch["gt_trans"].float().to(device)+pelvis_cam0))
+gt_root_pose[:,:3,3] -= pelvis_cam0
+gt_trans = gt_root_pose[start_offset:,:3,3]
+gt_trans[:,:2] = gt_trans[:,:2] - gt_trans[0,:2]
+norm_poses,norm_tfm = get_norm_poses(p3d_rt.matrix_to_axis_angle(torch.cat([gt_root_pose[start_offset:,:3,:3].unsqueeze(1),
+                        gt_body_pose[start_offset:]],dim=1)),
+                        gt_trans)
+gt_cam_poses = torch.matmul(to_homogeneous(norm_tfm,torch.zeros(1,3)),
+                            torch.matmul(ioi2scan_pose.unsqueeze(0),
+                            torch.inverse(torch.from_numpy(batch["cam_extr"]).float().to(device))))
+
+gt_smplout = smpl.forward(root_orient=norm_poses[:,3:6],
+                                    pose_body = norm_poses[:,6:69],
+                                    trans = norm_poses[:,:3],
+                                    betas = gt_betas[start_offset:])
+
+np.savez(ospj(res_dir,"res_strt_off_"+str(start_offset)),verts=res_smplout.v.detach().cpu().numpy(),
+            cam_trans=res_cam_poses[:,:,:3,3],
+            cam_rots=p3d_rt.matrix_to_quaternion(res_cam_poses[:,:,:3,:3]))
+np.savez(ospj(res_dir,"gt_and_res_strt_off_"+str(start_offset)),verts=torch.stack([gt_smplout.v,res_smplout.v]).detach().cpu().numpy(),
+            cam_trans=torch.stack([gt_cam_poses[config["cams_used"],:3,3].unsqueeze(1).repeat([1,gt_smplout.v.shape[0],1]),res_cam_poses[:,:,:3,3]]),
+            cam_rots=p3d_rt.matrix_to_quaternion(torch.stack([gt_cam_poses[config["cams_used"],:3,:3].unsqueeze(1).repeat([1,gt_smplout.v.shape[0],1,1]),res_cam_poses[:,:,:3,:3]])))
+
+import ipdb;ipdb.set_trace()
+
+
 
 # errors
 cam_position_error = ((gt_cam_poses[1:, :3, 3] - res_cam_poses_wrt_cam0[1:-1, 0, :3, 3])**2).sum(dim=1).sqrt()

@@ -211,3 +211,37 @@ def smpl_to_openpose(model_type='smplx', use_hands=True, use_face=True,
             raise ValueError('Unknown model type: {}'.format(model_type))
     else:
         raise ValueError('Unknown joint format: {}'.format(openpose_format))
+
+
+
+def proper_smpl_fwd(smpl,root_orient,pose_body,trans,betas):
+    smpl_out = smpl.forward(pose_body=pose_body,betas=betas)
+    transf_mat = to_homogeneous(p3dt.axis_angle_to_matrix(root_orient),trans)
+    v,j3d,_,_ = transform_smpl(transf_mat,smplvertices=smpl_out.v,smpljoints=smpl_out.Jtr)
+    smpl_out.v = v
+    smpl_out.Jtr = j3d
+    return smpl_out
+
+
+def get_norm_poses(poses, trans):
+
+    # translation starting from zero (x and y)
+    poses_matrix = p3dt.axis_angle_to_matrix(poses.view([poses.shape[0],-1,3]))
+    # trans[:,[0,2]] -= trans[0,[0,2]]
+    # import ipdb;ipdb.set_trace()
+    fwd = poses_matrix[0,0,:3,2].clone()
+    fwd[2] = 0
+    fwd /= torch.linalg.norm(fwd)
+    if fwd[0] > 0:
+        tfm = p3dt.axis_angle_to_matrix(torch.tensor([0,0,torch.arccos(fwd[1])]).type_as(fwd).unsqueeze(0))
+    else:
+        tfm = p3dt.axis_angle_to_matrix(torch.tensor([0,0,-torch.arccos(fwd[1])]).type_as(fwd).unsqueeze(0))
+    
+    tfmd_orient = torch.matmul(tfm,poses_matrix[:,0])
+    tfmd_trans = torch.matmul(tfm,trans.unsqueeze(2)).squeeze(2)
+    
+    poses_matrix[:,0] = tfmd_orient
+    
+    norm_poses = torch.cat([tfmd_trans,p3dt.matrix_to_axis_angle(poses_matrix).reshape(tfmd_trans.shape[0],-1)],dim=1)
+
+    return norm_poses, tfm

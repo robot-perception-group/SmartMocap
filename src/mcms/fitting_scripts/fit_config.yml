@@ -26,11 +26,11 @@ lr : [0.01,0.001,0.001]
 use_pare_init : True
 
 seq_no : 29
-big_seq_start : 1450
-big_seq_end : 2000
-overlap : 15
+big_seq_start : 2000
+big_seq_end : 2200
+overlap : 5
 init_seq_len : 25
-stitch_len : 2
+stitch_len : -1
 
 cams_used : [0,1,2,3]
 position_changing_cams : [0,1]
