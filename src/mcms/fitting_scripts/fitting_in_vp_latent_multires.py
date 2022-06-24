@@ -189,9 +189,9 @@ def load_batch_wth_pare_init():
             cam_position = torch.matmul(pare_orient[:,0],
                                 torch.matmul(torch.inverse(smpl_orient[0:1]), smpl_trans[0:1].unsqueeze(-1))) \
                                 + pare_cams[:, 0].unsqueeze(-1)
-            cam_position = [cam_position[c].squeeze(-1).unsqueeze(0).repeat([1,init_seq_len,1]).clone().detach() if c in config["position_changing_cams"] 
+            cam_position = [cam_position[c].squeeze(-1).unsqueeze(0).repeat([1,init_seq_len,1]).clone().detach() if config["cams_used"][c] in config["position_changing_cams"] 
                             else cam_position[c].squeeze(-1).unsqueeze(0).unsqueeze(0).clone().detach() for c in range(num_cams)]
-            cam_orient = [cam_orient[c].unsqueeze(0).repeat([1,init_seq_len,1,1]).clone().detach() if c in config["orient_changing_cams"] 
+            cam_orient = [cam_orient[c].unsqueeze(0).repeat([1,init_seq_len,1,1]).clone().detach() if config["cams_used"][c] in config["orient_changing_cams"] 
                             else cam_orient[c,0:1].unsqueeze(0).clone().detach() for c in range(num_cams)]
             smpl_orient = smpl_orient.clone().detach()
 
@@ -259,15 +259,12 @@ def optimize(params,device, iters):
             if i < iters[0]:
                 stage = 0
                 optim = optim0
-                sched = sched0
             elif i >= iters[0] and i < iters[1]:
                 stage = 1
                 optim = optim1
-                sched = sched1
             else:
                 stage = 2
                 optim = optim2
-                sched = sched2
             
             ################### FWD pass #####################
             # smpl_art_motion_interm = torch.cat([smpl_art_motion[:,:9],smpl_art_motion_nonOpt[:,:3],
@@ -283,7 +280,7 @@ def optimize(params,device, iters):
             # Decode smpl motion using motion vae
             mvae_model.eval()
             nmg_repr_list = Parallel(n_jobs=-1)(delayed(motion2nmg)(strt_idx,smpl_trans,smpl_orient,smpl_motion) 
-                            for strt_idx in range(0,curr_seq_len-nmg_seq_len+1,overlap))
+                            for strt_idx in range(0,curr_seq_len-nmg_seq_len+1,20))
             # nmg_repr_list = []
             # for strt_idx in range(0,curr_seq_len-nmg_seq_len+1,2):
             #     curr_pos, curr_ori = geometry.get_ground_point(smpl_trans[strt_idx],p3d_rt.rotation_6d_to_matrix(smpl_orient[strt_idx]))
@@ -608,8 +605,6 @@ if __name__ == "__main__":
         prev_seq_start = prev_seq_start + stitched_res[i]["j2ds"].shape[1] - overlap
     
     print("\n stitched length {} \n".format(len(stitched_res)))
-
-    import ipdb;ipdb.set_trace()
 
     iterations = config["n_optim_iters"][1]
     while len(fitter_res_stage[-1]) != 1:

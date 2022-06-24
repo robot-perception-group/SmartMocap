@@ -1,8 +1,8 @@
 executable = /home/nsaini/miniconda3/envs/mcms/bin/python
-arguments = /is/ps3/nsaini/projects/mcms/src/mcms/fitting_scripts/fitting_in_vp_latent_multires.py volley_data5_lst_proper_stitch 0
-error = /is/cluster/nsaini/cluster_logs/error.volley_data5_lst_proper_stitch_$(Process).err
-output = /is/cluster/nsaini/cluster_logs/output.volley_data5_lst_proper_stitch_$(Process).out
-log = /is/cluster/nsaini/cluster_logs/log.volley_data5_lst_proper_stitch_$(Process).log
+arguments = /is/ps3/nsaini/projects/mcms/src/mcms/fitting_scripts/fitting_in_vp_latent_multires.py volley_data 0
+error = /is/cluster/nsaini/cluster_logs/error.volley_data_$(Process).err
+output = /is/cluster/nsaini/cluster_logs/output.volley_data_$(Process).out
+log = /is/cluster/nsaini/cluster_logs/log.volley_data_$(Process).log
 request_memory = 100000
 request_cpus = 30
 request_gpus = 1
