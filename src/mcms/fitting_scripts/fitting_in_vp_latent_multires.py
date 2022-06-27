@@ -280,7 +280,7 @@ def optimize(params,device, iters):
             # Decode smpl motion using motion vae
             mvae_model.eval()
             nmg_repr_list = Parallel(n_jobs=-1)(delayed(motion2nmg)(strt_idx,smpl_trans,smpl_orient,smpl_motion) 
-                            for strt_idx in range(0,curr_seq_len-nmg_seq_len+1,20))
+                            for strt_idx in range(0,curr_seq_len-nmg_seq_len+1,config["nmg_decode_interval"]))
             # nmg_repr_list = []
             # for strt_idx in range(0,curr_seq_len-nmg_seq_len+1,2):
             #     curr_pos, curr_ori = geometry.get_ground_point(smpl_trans[strt_idx],p3d_rt.rotation_6d_to_matrix(smpl_orient[strt_idx]))

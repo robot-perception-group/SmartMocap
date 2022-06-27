@@ -15,7 +15,7 @@ cmap = cm.get_cmap('viridis')
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/multi_res_rich_5_j3dS_humor_comp/0000/gt_and_res_strt_off_10.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/before_cam_stitching_correction_fittings/volley_data5_lst_proper_stitch/0000/stage_06/_seq_start_01450.npz")
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 
@@ -51,7 +51,8 @@ for dat_idx in range(smpl_out.shape[0]):
 
         smpl_mesh = D.meshes.new("smpl_mesh"+str(idx))
         smpl_obj = D.objects.new(smpl_mesh.name,smpl_mesh)
-        smpl_mesh.from_pydata(smpl_out[dat_idx,idx] + np.array([0.1*idx,0,0]),[],list(bm.f.detach().numpy()))
+        # smpl_mesh.from_pydata(smpl_out[dat_idx,idx] + np.array([0.1*idx,0,0]),[],list(bm.f.detach().numpy()))
+        smpl_mesh.from_pydata(smpl_out[dat_idx,idx],[],list(bm.f.detach().numpy()))
         smpl_mesh.materials.append(mat)
         smpl_obj.show_transparent = True
         C.scene.collection.objects.link(smpl_obj)
