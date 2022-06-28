@@ -73,6 +73,7 @@ n_optim_iters = config["n_optim_iters"]
 loss_human_gp_weight = config["loss_human_gp_weight"]
 loss_cam_gp_weight = config["loss_cam_gp_weight"]
 loss_vp_weight = config["loss_vp_weight"]
+loss_cont_weight = config["loss_cont_weight"]
 loss_smpl_in_front_weight = config["loss_smpl_in_front_weight"]
 loss_j3d_smooth_weight = config["loss_j3d_smooth_weight"]
 lr = config["lr"]
@@ -280,7 +281,7 @@ def optimize(params,device, iters):
             # Decode smpl motion using motion vae
             mvae_model.eval()
             nmg_repr_list = Parallel(n_jobs=-1)(delayed(motion2nmg)(strt_idx,smpl_trans,smpl_orient,smpl_motion) 
-                            for strt_idx in range(0,curr_seq_len-nmg_seq_len+1,config["nmg_decode_interval"]))
+                            for strt_idx in range(0,curr_seq_len-nmg_seq_len+1,nmg_seq_len-overlap))
             # nmg_repr_list = []
             # for strt_idx in range(0,curr_seq_len-nmg_seq_len+1,2):
             #     curr_pos, curr_ori = geometry.get_ground_point(smpl_trans[strt_idx],p3d_rt.rotation_6d_to_matrix(smpl_orient[strt_idx]))
@@ -295,18 +296,12 @@ def optimize(params,device, iters):
             
             nmg_repr = torch.cat(nmg_repr_list,dim=0)
             smpl_motion_latent = mvae_model.encode(nmg_repr)[:,0]
-            # nmg_repr = (smpl2nmg(smpl_motion,smpl).reshape(-1,curr_seq_len,22*9) - mvae_mean)/mvae_std
-            # smpl_motion_latent = mvae_model.encode(nmg_repr)[:,0]
 
             # SMPL fwd pass
             smpl_out = smpl.forward(root_orient = smpl_motion[:,3:6],
                                         pose_body = smpl_motion[:,6:],
                                         trans = smpl_motion[:,:3],
                                         betas = smpl_shape.unsqueeze(1).expand(-1,curr_seq_len,-1).reshape(-1,smpl_shape.shape[-1]))
-            # smpl_out = smpl2.forward(global_orient = p3d_rt.rotation_6d_to_matrix(smpl_orient).unsqueeze(1),
-            #                             body_pose = p3d_rt.rotation_6d_to_matrix(smpl_art_motion),
-            #                             transl = smpl_motion[:,:3],
-            #                             betas = smpl_shape.unsqueeze(1).expand(-1,seq_len,-1).reshape(-1,smpl_shape.shape[-1]),pose2rot=False)
             
             j3ds = smpl_out.Jtr[:,:22,:]
             
@@ -414,10 +409,194 @@ def optimize(params,device, iters):
     #             import ipdb;ipdb.set_trace()
     # import ipdb;ipdb.set_trace()
     return {"cam_orient":[p3d_rt.rotation_6d_to_matrix(x).clone().detach().cpu() for x in cam_orient], "cam_position": [x.clone().detach().cpu() for x in cam_position],
+                        "smpl_motion_latent": smpl_motion_latent.clone().detach().cpu(),
+                        "nmg_overlap": overlap,
                         "smpl_trans":smpl_trans.clone().detach().cpu(), "proj_j3ds":proj_j3ds.clone().detach().cpu(),
                         "smpl_orient": p3d_rt.rotation_6d_to_matrix(smpl_orient).cpu(), "smpl_shape": smpl_shape.clone().detach().cpu(), 
                         "smpl_art_motion_vp_latent":smpl_art_motion_vp_latent.clone().detach().cpu(), "j2ds":j2ds.clone().detach().cpu(),
                         "full_im_paths": params["full_im_paths"]}
+
+
+def nmg_latent_optimize(params,device, iters):
+    
+    global smpl
+    global vp_model
+    global mvae_model
+    global mvae_mean
+    global mvae_std
+    global cam_intr
+
+    smpl = smpl.to(device)
+    vp_model = vp_model.to(device)
+    mvae_model = mvae_model.to(device)
+    mvae_mean = mvae_mean.to(device)
+    mvae_std = mvae_std.to(device)
+
+    cam_orient = [p3d_rt.matrix_to_rotation_6d(x).clone().detach().to(device).requires_grad_(True) for x in params["cam_orient"]]
+    cam_position = [x.clone().detach().to(device).requires_grad_(True) for x in params["cam_position"]]
+    smpl_shape = params["smpl_shape"].clone().detach().to(device).requires_grad_(True)
+    smpl_motion_latent = params["smpl_motion_latent"].clone().detach().to(device).requires_grad_(True)
+    j2ds = params["j2ds"].clone().detach().to(device)
+    cam_intr = cam_intr.to(device)
+    curr_seq_len = j2ds.shape[1]
+
+    optim2 = torch.optim.Adam([{"params": cam_position + cam_orient, "lr": lr[2]*10} , {"params": [smpl_motion_latent, 
+                                    smpl_shape]}],lr=lr[2])
+
+    with trange(iters[2]) as t:
+        for i in t:
+            stage = 2
+            optim = optim2
+            
+            ################### FWD pass #####################            
+            # Decode smpl motion using motion vae
+            mvae_model.eval()
+            smpl_motion_decoded = mvae_model.decode(smpl_motion_latent)
+            smpl_motion_unnorm = smpl_motion_decoded*mvae_std + mvae_mean
+            
+            smpl_motion = nmg2smpl(smpl_motion_unnorm.reshape(-1,22,9),smpl).reshape(smpl_motion_unnorm.shape[0],nmg_seq_len,-1)
+
+            # transform seq chunks
+            cont_seq = [smpl_motion[0].clone()]
+            for j in range(1,smpl_motion.shape[0]):
+                pos, ori = geometry.get_ground_point(smpl_motion[j-1,-overlap,:3],p3d_rt.axis_angle_to_matrix(smpl_motion[j-1,-overlap,3:6]))
+                seq_temp_ori = p3d_rt.matrix_to_axis_angle(torch.matmul(ori,p3d_rt.axis_angle_to_matrix(smpl_motion[j,:,3:6])))
+                seq_temp_pos = torch.matmul(ori,smpl_motion[j,:,:3].unsqueeze(2)).squeeze(2) + pos
+                cont_seq.append(torch.cat([seq_temp_pos,seq_temp_ori,smpl_motion[j,:,6:]],dim=1))
+
+
+            cont_seq_no_overlap = torch.cat([x[:-overlap] for x in cont_seq[:-1]]+[cont_seq[-1]])
+            cont_seq = torch.cat(cont_seq)
+
+            # vposer latent
+            smpl_art_motion_vp_latent = vp_model.encode(cont_seq_no_overlap[:,6:]).mean
+
+            # SMPL fwd pass
+            cont_seq = cont_seq.reshape(-1,cont_seq.shape[-1])
+            smpl_out = smpl.forward(root_orient = cont_seq_no_overlap[:,3:6],
+                                    pose_body = cont_seq_no_overlap[:,6:69],
+                                    trans = cont_seq_no_overlap[:,:3],
+                                    betas = smpl_shape.unsqueeze(1).expand(-1,curr_seq_len,-1).reshape(-1,smpl_shape.shape[-1]))
+            
+            j3ds = smpl_out.Jtr[:,:22,:]
+            
+            # camera extrinsics
+            cam_orient_expanded = torch.cat([x.repeat(1,curr_seq_len,1) if x.shape[1]==1 else x for x in cam_orient],dim=0)
+            cam_position_expanded = torch.cat([x.repeat(1,curr_seq_len,1) if x.shape[1]==1 else x for x in cam_position],dim=0)
+            cam_ext_temp = torch.cat([p3d_rt.rotation_6d_to_matrix(cam_orient_expanded),cam_position_expanded.unsqueeze(3)],dim=3)
+            cam_ext = torch.cat([cam_ext_temp,torch.tensor([0,0,0,1]).type_as(cam_ext_temp).repeat(num_cams,curr_seq_len,1,1)],dim=2)
+
+            # camera extrinsics
+            cam_poses = torch.inverse(cam_ext)
+
+            # camera projection
+            proj_j3ds = torch.stack([perspective_projection(j3ds,
+                            cam_ext[i,:,:3,:3].reshape(-1,3,3),
+                            cam_ext[i,:,:3,3].reshape(-1,3),
+                            cam_intr[i].unsqueeze(0).expand(curr_seq_len,-1,-1).reshape(-1,3,3)).reshape(curr_seq_len,-1,2) for i in range(num_cams)])
+
+
+            ####################### Losses #######################
+
+            # reprojection loss         
+            if stage == 0:
+                loss_2d = (j2ds[:,:,:22,2]*(((proj_j3ds[:,:,:22] - j2ds[:,:,:22,:2])**2).sum(dim=3))).sum(dim=0).mean()
+            elif stage == 1:
+                # take only first frame
+                loss_2d = (j2ds[:,:,:22,2]*(((proj_j3ds[:,:,:22] - j2ds[:,:,:22,:2])**2).sum(dim=3))).sum(dim=0).mean()
+                # loss_2d = (j2ds[:,:,idcs,2]*((gmcclure(proj_j3ds[:,:,idcs] - j2ds[:,:,idcs,:2],config["gmcclure_sigma"])).sum(dim=3))).sum(dim=0).mean()
+            else:
+                loss_2d = (j2ds[:,:,:22,2]*(((proj_j3ds[:,:,:22] - j2ds[:,:,:22,:2])**2).sum(dim=3))).sum(dim=0).mean()
+
+            # latent space regularization
+            loss_z = (smpl_motion_latent**2).mean(dim=-1).sum()
+
+            # j3d smooth loss
+            loss_j3d_smooth = (((j3ds[1:] - j3ds[:-1])**2).sum(dim=2)).sum()
+
+            # smooth camera motions
+            # loss_cams_orient = ((cam_orient_expanded[:,1:] - cam_orient_expanded[:,:-1])**2).mean()
+            # loss_cams_position = ((cam_position_expanded[:,1:] - cam_position_expanded[:,:-1])**2).mean()
+            loss_cams_orient = ((cam_poses[:,1:,:3,:3] - cam_poses[:,:-1,:3,:3])**2).mean()
+            loss_cams_position = ((cam_poses[:,1:,:3,3] - cam_poses[:,:-1,:3,3])**2).mean()
+
+            # continuation loss
+            cont_seq_reshaped = cont_seq.reshape(smpl_motion.shape[0],smpl_motion.shape[1],cont_seq.shape[-1])
+            loss_cont = torch.cat([((cont_seq_reshaped[i,-overlap:]-cont_seq_reshaped[i+1,:overlap])**2).mean().unsqueeze(0) for i in range(cont_seq_reshaped.shape[0]-1)]).mean()
+
+            # shape regularization loss
+            loss_betas = (smpl_shape*smpl_shape).mean()
+
+            # ground penetration loss
+            loss_human_gp = torch.nn.functional.relu(-j3ds[:,:,2]).mean()
+
+            # camera ground penetration loss
+            loss_cam_gp = torch.nn.functional.relu(-cam_poses[:,:,2,3]).mean()
+
+            # loss vposer
+            loss_vp = (smpl_art_motion_vp_latent**2).mean()
+
+            # loss smpl in front
+            loss_smpl_in_front = torch.nn.functional.relu(-cam_ext[:,:,2,3]).mean()
+
+            # total loss
+            loss = loss_2d_weight[stage] * loss_2d + \
+                    loss_z_weight[stage] * loss_z + \
+                        loss_cams_orient_weight[stage] * loss_cams_orient + \
+                            loss_cams_position_weight[stage] * loss_cams_position + \
+                            loss_betas_weight[stage] * loss_betas + \
+                                float(loss_human_gp_weight[stage]) * loss_human_gp + \
+                                    float(loss_cam_gp_weight[stage]) * loss_cam_gp + \
+                                        loss_vp_weight[stage] * loss_vp + \
+                                            loss_smpl_in_front_weight[stage] * loss_smpl_in_front + \
+                                                loss_j3d_smooth_weight[stage] * loss_j3d_smooth + \
+                                                    loss_cont_weight[stage] * loss_cont
+
+            # Viz
+
+            # zero grad optimizer
+            optim.zero_grad()
+            
+            # backward
+            loss.backward()
+
+            # optim step
+            optim.step()
+
+            # schedule lr
+            # sched.step(loss)
+
+            # loss dict
+            loss_dict = {"loss":loss.item(),
+                            "loss_2d":loss_2d.item(),
+                            "loss_z":loss_z.item(),
+                            "loss_vp":loss_vp.item(),
+                            "loss_j3d":loss_j3d_smooth.item(),
+                            "loss_cams_orient":loss_cams_orient.item(),
+                            "loss_cams_position":loss_cams_position.item(),
+                            "loss_betas":loss_betas.item(),
+                            "loss_human_gp":loss_human_gp.item(),
+                            "loss_cam_gp":loss_cam_gp.item(),
+                            "loss_smpl_front":loss_smpl_in_front.item(),
+                            "loss_cont":loss_cont.item()}
+
+            # print loss
+            t.set_postfix(loss_dict)
+
+            # track losses
+            # for k,v in loss_dict.items():
+            #     writer.add_scalar(k,v,global_step=i)
+    #         if i == 0 or i == iters[0] or i == iters[1] :
+    #             import ipdb;ipdb.set_trace()
+    # import ipdb;ipdb.set_trace()
+    return {"cam_orient":[p3d_rt.rotation_6d_to_matrix(x).clone().detach().cpu() for x in cam_orient], "cam_position": [x.clone().detach().cpu() for x in cam_position],
+                        "smpl_motion_latent": smpl_motion_latent.clone().detach().cpu(),
+                        "nmg_overlap": overlap,
+                        "smpl_trans":cont_seq_no_overlap[:,:3].clone().detach().cpu(), "proj_j3ds":proj_j3ds.clone().detach().cpu(),
+                        "smpl_orient": p3d_rt.axis_angle_to_matrix(cont_seq_no_overlap[:,3:6]).cpu(), "smpl_shape": smpl_shape.clone().detach().cpu(), 
+                        "smpl_art_motion_vp_latent":smpl_art_motion_vp_latent.clone().detach().cpu(), "j2ds":j2ds.clone().detach().cpu(),
+                        "full_im_paths": params["full_im_paths"]}
+
 
 
 
@@ -439,6 +618,7 @@ def stitch(prev_stage_dicts,stitch_num):
             last_smpl_trans = prev_dict["smpl_trans"].clone().detach()
             j2ds = prev_dict["j2ds"].clone().detach()
             full_im_paths = prev_dict["full_im_paths"]
+            smpl_motion_latent = prev_dict["smpl_motion_latent"]
 
             for i in range(n_dict+1,n_dict+stitch_num):
                 if i >= len(prev_stage_dicts):
@@ -456,6 +636,7 @@ def stitch(prev_stage_dicts,stitch_num):
                 smpl_trans = torch.cat([smpl_trans,tfmd_smpl[1:,:3,3]]).clone().detach()
 
                 smpl_art_motion_vp_latent = torch.cat([smpl_art_motion_vp_latent,prev_dict["smpl_art_motion_vp_latent"][overlap:]])
+                smpl_motion_latent = torch.cat([smpl_motion_latent,prev_dict["smpl_motion_latent"]])
                 
                 updated_cam_orient = [torch.matmul(x[0,overlap-1:,:3,:3],torch.inverse(tfm)[:,:3,:3]) for x in prev_dict["cam_orient"]]
                 updated_cam_position = [torch.matmul(prev_dict["cam_orient"][x][0,overlap-1:,:3,:3],torch.inverse(tfm)[:,:3,3].unsqueeze(-1)).squeeze(-1) + 
@@ -477,7 +658,9 @@ def stitch(prev_stage_dicts,stitch_num):
                 
 
             new_stage_dicts.append({"cam_orient":cam_orient, "cam_position": cam_position,
-                            "smpl_trans":smpl_trans.clone().detach(), 
+                            "smpl_trans":smpl_trans.clone().detach(),
+                            "smpl_motion_latent": smpl_motion_latent.clone().detach(),
+                            "nmg_overlap": overlap,
                             "smpl_orient": smpl_orient, "smpl_shape": smpl_shape, 
                             "smpl_art_motion_vp_latent":smpl_art_motion_vp_latent.clone().detach(), "j2ds":j2ds.clone().detach(),
                             "full_im_paths": full_im_paths})
@@ -611,7 +794,7 @@ if __name__ == "__main__":
 
         stage = stage+1
 
-        # optimize(stitched_res[-1],device,iterations)
+        # nmg_latent_optimize(stitched_res[-1],device,iterations)
         res_stage = Parallel(n_jobs=-1)(delayed(optimize)(stitched_res[i],device,iterations) for i in tqdm(range(len(stitched_res))))
 
         print("\n saving results \n")

@@ -11,11 +11,12 @@ batch_size : 1
 nmg_seq_len : 25
 loss_2d_weight : [1,1,1]
 loss_z_weight : [10,10,10]
-loss_j3d_smooth_weight: [1,1,0.1]
+loss_j3d_smooth_weight: [1,1,0.5]
 loss_cams_orient_weight : [1,1,1]
 loss_cams_position_weight : [100000,100000,100000]
 loss_betas_weight : [100,100,100]
-n_optim_iters: [[2000,3000,4000],[0,1000,2000]]
+loss_cont_weight: [100,100,100]
+n_optim_iters: [[2000,3000,4000],[0,0,2000]]
 loss_human_gp_weight : [1.0e4,1.0e4,1.0e4]
 loss_smpl_in_front_weight : [0,0,0]
 loss_cam_gp_weight : [1.0e4,1.0e4,1.0e4]
@@ -26,12 +27,11 @@ lr : [0.01,0.001,0.001]
 use_pare_init : True
 
 seq_no : 29
-big_seq_start : 5
+big_seq_start : 450
 big_seq_end : 550
-overlap : 5
+overlap : 10
 init_seq_len : 25
 stitch_len : -1
-nmg_decode_interval: 2
 
 cams_used : [0]
 position_changing_cams : []
