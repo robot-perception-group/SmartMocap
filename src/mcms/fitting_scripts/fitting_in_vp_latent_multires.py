@@ -114,7 +114,7 @@ elif dset.lower() == "copenet_real":
     im_res=[[1920,1080],[1920,1080]]
 elif dset.lower() == "savitr":
     ds = savitr_dataset.savitr_dataset(config["data_path"],seq_len=25)
-    im_lists = ds.__getitem__(1450,seq_len=1)["full_im_paths"]
+    im_lists = ds.__getitem__(10,seq_len=1)["full_im_paths"]
     im_res = [[cv2.imread(i[0]).shape[1],cv2.imread(i[0]).shape[0]] for i in im_lists]
     fps_scl = 1
     viz_dwnsample = 1

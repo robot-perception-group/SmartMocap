@@ -2,6 +2,7 @@ mo_vae_ckpt_path : "/is/ps3/nsaini/projects/mcms/mcms_logs/2022_03_07/v000_/chec
 bm_fname: "/home/nsaini/Datasets/smpl_models/smpl/SMPL_NEUTRAL.pkl"
 dset : "rich"
 # data_path : "/ps/project/datasets/AirCap_ICCV19/opencam/VolleyDay"
+# data_path : "/ps/project/datasets/AirCap_ICCV19/opencam/20220417/Niz_dance"
 # data_path : "/ps/project/datasets/AirCap_ICCV19/RICH_IPMAN/val/2021-06-15_Multi_IOI_ID_00228_Yoga1"
 # data_path : "/ps/project/datasets/AirCap_ICCV19/RICH_IPMAN/val/2021-06-15_Multi_IOI_ID_03588_Yoga1"
 data_path : "/ps/project/datasets/AirCap_ICCV19/RICH_IPMAN/test/2021-06-15_Multi_IOI_ID_00186_Yoga1"
@@ -11,7 +12,7 @@ batch_size : 1
 nmg_seq_len : 25
 loss_2d_weight : [1,1,1]
 loss_z_weight : [10,10,10]
-loss_j3d_smooth_weight: [1,1,0.5]
+loss_j3d_smooth_weight: [1,1,0.1]
 loss_cams_orient_weight : [1,1,1]
 loss_cams_position_weight : [100000,100000,100000]
 loss_betas_weight : [100,100,100]
@@ -27,15 +28,15 @@ lr : [0.01,0.001,0.001]
 use_pare_init : True
 
 seq_no : 29
-big_seq_start : 450
-big_seq_end : 550
-overlap : 10
+big_seq_start : 5
+big_seq_end : 580
+overlap : 15
 init_seq_len : 25
 stitch_len : -1
 
-cams_used : [0]
-position_changing_cams : []
-orient_changing_cams : []
+cams_used : [0,1]
+position_changing_cams : [1]
+orient_changing_cams : [1]
 optimize_intr : false
 
 device: "cpu"

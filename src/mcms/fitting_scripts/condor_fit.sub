@@ -1,8 +1,8 @@
 executable = /home/nsaini/miniconda3/envs/mcms/bin/python
-arguments = /is/ps3/nsaini/projects/mcms/src/mcms/fitting_scripts/fitting_in_vp_latent_multires.py copenet_zLatent 0
-error = /is/cluster/nsaini/cluster_logs/error.copenet_zLatent_$(Process).err
-output = /is/cluster/nsaini/cluster_logs/output.copenet_zLatent_$(Process).out
-log = /is/cluster/nsaini/cluster_logs/log.copenet_zLatent_$(Process).log
+arguments = /is/ps3/nsaini/projects/mcms/src/mcms/fitting_scripts/fitting_in_vp_latent_multires.py rich_first_and_moving_cam_zLatent 0
+error = /is/cluster/nsaini/cluster_logs/error.rich_first_and_moving_cam_zLatent_$(Process).err
+output = /is/cluster/nsaini/cluster_logs/output.rich_first_and_moving_cam_zLatent_$(Process).out
+log = /is/cluster/nsaini/cluster_logs/log.rich_first_and_moving_cam_zLatent_$(Process).log
 request_memory = 100000
 request_cpus = 30
 request_gpus = 1
