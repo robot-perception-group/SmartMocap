@@ -1,4 +1,5 @@
 from concurrent.futures import process
+from matplotlib.style import available
 import numpy as np
 import os
 from os.path import join as ospj
@@ -6,6 +7,9 @@ from human_body_prior.body_model.body_model import BodyModel
 from human_body_prior.models.vposer_model import VPoser
 from human_body_prior.tools.model_loader import load_model
 from pytorch3d.transforms import rotation_conversions as p3d_rt
+from nmg.models import nmg
+from mcms.utils.utils import nmg2smpl, smpl2nmg
+from mcms.utils import geometry
 import yaml
 import torch
 import cv2
@@ -32,6 +36,7 @@ res = pkl.load(open(final_stage_res[0],"rb"))
 # Params
 config = yaml.safe_load(open(ospj(res_dir,"config.yml")))
 batch_size = config["batch_size"]
+nmg_seq_len = config["nmg_seq_len"]
 n_optim_iters = config["n_optim_iters"]
 dset = config["dset"]
 seq_no = config["seq_no"]
@@ -47,6 +52,13 @@ smpl = BodyModel(bm_fname=hparams["model_smpl_neutral_path"]).to(device)
 # vposer model
 vp_model = load_model(hparams["model_vposer_path"], model_code=VPoser,remove_words_in_model_weights="vp_model.")[0].to(device)
 vp_model.eval()
+
+# MVAE
+nmg_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
+mvae_model = nmg.nmg.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],map_location=device).to(device)
+mean_std = np.load(hparams["model_mvae_mean_std_path"])
+mvae_mean = torch.from_numpy(mean_std["mean"]).float().to(device)
+mvae_std = torch.from_numpy(mean_std["std"]).float().to(device)
 
 # Dataloader
 if dset.lower() == "h36m":
@@ -87,17 +99,36 @@ start_offset = 10
 
 
 # load results
+# mvae_model.eval()
+# smpl_motion_decoded = mvae_model.decode(res["smpl_motion_latent"])
+# smpl_motion_unnorm = smpl_motion_decoded*mvae_std + mvae_mean
+# smpl_motion = nmg2smpl(smpl_motion_unnorm.reshape(-1,22,9),smpl).reshape(smpl_motion_unnorm.shape[0],nmg_seq_len,-1)
+
+# # transform seq chunks
+# cont_seq = [smpl_motion[0].clone()]
+# for j in range(1,smpl_motion.shape[0]):
+#     pos, ori = geometry.get_ground_point(smpl_motion[j-1,-overlap,:3],p3d_rt.axis_angle_to_matrix(smpl_motion[j-1,-overlap,3:6]))
+#     seq_temp_ori = p3d_rt.matrix_to_axis_angle(torch.matmul(ori,p3d_rt.axis_angle_to_matrix(smpl_motion[j,:,3:6])))
+#     seq_temp_pos = torch.matmul(ori,smpl_motion[j,:,:3].unsqueeze(2)).squeeze(2) + pos
+#     cont_seq.append(torch.cat([seq_temp_pos,seq_temp_ori,smpl_motion[j,:,6:]],dim=1))
+
+# cont_seq_no_overlap = torch.cat([x[:-overlap] for x in cont_seq[:-1]]+[cont_seq[-1]])
+
+# res_trans = cont_seq_no_overlap[:,:3].float().to(device)[start_offset:]
+# res_global_orient = cont_seq_no_overlap[:,3:6].float().to(device)[start_offset:]
+# res_body_pose = cont_seq_no_overlap[:,6:].float().to(device).reshape(seq_len,63)[start_offset:]
+
 res_trans = res["smpl_trans"].float().to(device)[start_offset:]
-res_global_orient = res["smpl_orient"].float().to(device)[start_offset:]
-res_smpl_root_pose = to_homogeneous(res_global_orient,res_trans)
+res_global_orient = p3d_rt.matrix_to_axis_angle(res["smpl_orient"]).float().to(device)[start_offset:]
 res_body_pose = vp_model.decode(res["smpl_art_motion_vp_latent"])["pose_body"].float().to(device).reshape(seq_len,63)[start_offset:]
+
 res_betas = res["smpl_shape"].float().to(device)
 res_cam_extr_rots = torch.cat([x.repeat(1,seq_len,1,1) if x.shape[1] == 1 else x for x in res["cam_orient"]]).float().to(device)
 res_cam_extr_trans = torch.cat([x.repeat(1,seq_len,1) if x.shape[1] == 1 else x for x in res["cam_position"]]).float().to(device)
 res_cam_poses = torch.inverse(to_homogeneous(res_cam_extr_rots,res_cam_extr_trans)[:,start_offset:])
 res_trans_zero_corr = res_trans.detach().clone()
 res_trans_zero_corr[:,:2] = res_trans_zero_corr[:,:2] - res_trans_zero_corr[0,:2]
-res_norm_poses,res_norm_tfm = get_norm_poses(torch.cat([p3d_rt.matrix_to_axis_angle(res_global_orient),res_body_pose],dim=1),res_trans)
+res_norm_poses,res_norm_tfm = get_norm_poses(torch.cat([res_global_orient,res_body_pose],dim=1),res_trans_zero_corr)
 res_cam_poses[:,:,:2,3] = res_cam_poses[:,:,:2,3] - res_trans[0,:2]
 res_cam_poses = torch.matmul(to_homogeneous(res_norm_tfm,torch.zeros(1,3)), res_cam_poses)
 res_smplout = smpl.forward(root_orient=res_norm_poses[:,3:6],
@@ -131,12 +162,16 @@ gt_smplout = smpl.forward(root_orient=norm_poses[:,3:6],
                                     trans = norm_poses[:,:3],
                                     betas = gt_betas[start_offset:])
 
+
+available_gt_cam_poses = torch.stack([gt_cam_poses[x] if x < gt_cam_poses.shape[0] else gt_cam_poses[0] for x in config["cams_used"]])
 np.savez(ospj(res_dir,"res_strt_off_"+str(start_offset)),verts=res_smplout.v.detach().cpu().numpy(),
-            cam_trans=res_cam_poses[:,:,:3,3],
-            cam_rots=p3d_rt.matrix_to_quaternion(res_cam_poses[:,:,:3,:3]))
+            cam_trans=res_cam_poses[:,:,:3,3].detach().cpu().numpy(),
+            cam_rots=p3d_rt.matrix_to_quaternion(res_cam_poses[:,:,:3,:3]).detach().cpu().numpy())
 np.savez(ospj(res_dir,"gt_and_res_strt_off_"+str(start_offset)),verts=torch.stack([gt_smplout.v,res_smplout.v]).detach().cpu().numpy(),
-            cam_trans=torch.stack([gt_cam_poses[config["cams_used"],:3,3].unsqueeze(1).repeat([1,gt_smplout.v.shape[0],1]),res_cam_poses[:,:,:3,3]]),
-            cam_rots=p3d_rt.matrix_to_quaternion(torch.stack([gt_cam_poses[config["cams_used"],:3,:3].unsqueeze(1).repeat([1,gt_smplout.v.shape[0],1,1]),res_cam_poses[:,:,:3,:3]])))
+            cam_trans=torch.stack([available_gt_cam_poses[:,:3,3].unsqueeze(1).repeat([1,gt_smplout.v.shape[0],1]),
+            res_cam_poses[:,:,:3,3]]).detach().cpu().numpy(),
+            cam_rots=p3d_rt.matrix_to_quaternion(torch.stack([available_gt_cam_poses[:,:3,:3].unsqueeze(1).repeat([1,gt_smplout.v.shape[0],1,1]),
+            res_cam_poses[:,:,:3,:3]])).detach().cpu().numpy())
 
 import ipdb;ipdb.set_trace()
 

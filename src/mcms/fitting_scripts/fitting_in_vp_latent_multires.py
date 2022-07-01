@@ -32,6 +32,12 @@ from joblib import Parallel, delayed
 from joblib import wrap_non_picklable_objects
 import pickle as pkl
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+import matplotlib.pyplot as plt
+
+cmap_set1 = plt.get_cmap("Set1",9)
+cmap_set2 = plt.get_cmap("Set2",8)
+cmap_set3 = plt.get_cmap("Set3",12)
+cmap = [np.array(cmap_set1(x)[:3])*255 for x in range(9)] + [np.array(cmap_set2(x)[:3])*255 for x in range(8)] + [np.array(cmap_set3(x)[:3])*255 for x in range(12)]
 
 
 trial_name = sys.argv[1]
@@ -412,7 +418,8 @@ def optimize(params,device, iters):
                         "smpl_motion_latent": smpl_motion_latent.clone().detach().cpu(),
                         "nmg_overlap": overlap,
                         "smpl_trans":smpl_trans.clone().detach().cpu(), "proj_j3ds":proj_j3ds.clone().detach().cpu(),
-                        "smpl_orient": p3d_rt.rotation_6d_to_matrix(smpl_orient).cpu(), "smpl_shape": smpl_shape.clone().detach().cpu(), 
+                        "smpl_orient": p3d_rt.rotation_6d_to_matrix(smpl_orient).cpu(), "smpl_shape": smpl_shape.clone().detach().cpu(),
+                        "smpl_body_pose": smpl_motion[:,6:].clone().detach().cpu(),
                         "smpl_art_motion_vp_latent":smpl_art_motion_vp_latent.clone().detach().cpu(), "j2ds":j2ds.clone().detach().cpu(),
                         "full_im_paths": params["full_im_paths"]}
 
@@ -593,7 +600,8 @@ def nmg_latent_optimize(params,device, iters):
                         "smpl_motion_latent": smpl_motion_latent.clone().detach().cpu(),
                         "nmg_overlap": overlap,
                         "smpl_trans":cont_seq_no_overlap[:,:3].clone().detach().cpu(), "proj_j3ds":proj_j3ds.clone().detach().cpu(),
-                        "smpl_orient": p3d_rt.axis_angle_to_matrix(cont_seq_no_overlap[:,3:6]).cpu(), "smpl_shape": smpl_shape.clone().detach().cpu(), 
+                        "smpl_orient": p3d_rt.axis_angle_to_matrix(cont_seq_no_overlap[:,3:6]).cpu(), "smpl_shape": smpl_shape.clone().detach().cpu(),
+                        "smpl_body_pose": cont_seq_no_overlap[:,6:].clone().detach().cpu(),
                         "smpl_art_motion_vp_latent":smpl_art_motion_vp_latent.clone().detach().cpu(), "j2ds":j2ds.clone().detach().cpu(),
                         "full_im_paths": params["full_im_paths"]}
 
@@ -619,6 +627,7 @@ def stitch(prev_stage_dicts,stitch_num):
             j2ds = prev_dict["j2ds"].clone().detach()
             full_im_paths = prev_dict["full_im_paths"]
             smpl_motion_latent = prev_dict["smpl_motion_latent"]
+            smpl_body_pose = prev_dict["smpl_body_pose"]
 
             for i in range(n_dict+1,n_dict+stitch_num):
                 if i >= len(prev_stage_dicts):
@@ -636,6 +645,7 @@ def stitch(prev_stage_dicts,stitch_num):
                 smpl_trans = torch.cat([smpl_trans,tfmd_smpl[1:,:3,3]]).clone().detach()
 
                 smpl_art_motion_vp_latent = torch.cat([smpl_art_motion_vp_latent,prev_dict["smpl_art_motion_vp_latent"][overlap:]])
+                smpl_body_pose = torch.cat([smpl_body_pose,prev_dict["smpl_body_pose"][overlap:]])
                 smpl_motion_latent = torch.cat([smpl_motion_latent,prev_dict["smpl_motion_latent"]])
                 
                 updated_cam_orient = [torch.matmul(x[0,overlap-1:,:3,:3],torch.inverse(tfm)[:,:3,:3]) for x in prev_dict["cam_orient"]]
@@ -662,6 +672,7 @@ def stitch(prev_stage_dicts,stitch_num):
                             "smpl_motion_latent": smpl_motion_latent.clone().detach(),
                             "nmg_overlap": overlap,
                             "smpl_orient": smpl_orient, "smpl_shape": smpl_shape, 
+                            "smpl_body_pose": smpl_body_pose.clone().detach(),
                             "smpl_art_motion_vp_latent":smpl_art_motion_vp_latent.clone().detach(), "j2ds":j2ds.clone().detach(),
                             "full_im_paths": full_im_paths})
 
@@ -722,9 +733,9 @@ def save_results(stage_dict,stage,seq_start, prefix="", viz=False):
                 for joint in range(j2ds.shape[2]-2):
                     rend_ims = rend_ims*255
                     cv2.circle(rend_ims,(int(j2ds[cam,s,joint,0]),
-                                int(j2ds[cam,s,joint,1])),10,(255,255,255),-1)
-                    cv2.circle(rend_ims,(int(stage_dict["proj_j3ds"][cam,s,joint,0]),
-                                int(stage_dict["proj_j3ds"][cam,s,joint,1])),5,(0,0,0),-1)
+                                int(j2ds[cam,s,joint,1])),10*viz_dwnsample,cmap[joint],-1)
+                    # cv2.circle(rend_ims,(int(stage_dict["proj_j3ds"][cam,s,joint,0]),
+                    #             int(stage_dict["proj_j3ds"][cam,s,joint,1])),2.5*viz_dwnsample,(0,0,0),-1)
                     rend_ims = rend_ims/255
                 
                 cv2.imwrite("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/stage_{:02d}/{}_seq_start_{:05d}/cam_{:02d}/{:05d}.png".format(config["trial_name"],
@@ -766,7 +777,7 @@ if __name__ == "__main__":
         print("\n saving results \n")
         prev_seq_start = big_seq_start
         for i in tqdm(range(len(res_stage))):
-            save_results(res_stage[i],stage, prev_seq_start)
+            save_results(res_stage[i],stage, prev_seq_start,viz=True)
             prev_seq_start = prev_seq_start + res_stage[i]["j2ds"].shape[1] - overlap
         
 
