@@ -21,7 +21,7 @@ C.scene.collection.objects.link(empty)
 # 414
 # data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/copenet_7/0000/stage_02/_seq_start_03000.npz")
 # 599
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/rich_first_and_moving_cam_zLatent_val_0228/0000/gt_and_res_strt_off_10.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/volley_data_teaser/0000/stage_01/_seq_start_02110.npz")
 
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
@@ -124,6 +124,6 @@ def new_plane(mylocation, mysize, myname):
     return
 
 
-# for idi,i in enumerate(np.arange(-10.5,11.5)):
-#     for idj,j in enumerate(np.arange(-10.5,11.5)):
-#         new_plane((i,j,0),0.95,"plane_{}_{}".format(idi,idj))
+for idi,i in enumerate(np.arange(-10.5,11.5)):
+    for idj,j in enumerate(np.arange(-10.5,11.5)):
+        new_plane((i,j,0),0.95,"plane_{}_{}".format(idi,idj))

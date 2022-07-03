@@ -633,38 +633,38 @@ def stitch(prev_stage_dicts,stitch_num):
                 if i >= len(prev_stage_dicts):
                     break
                 prev_dict = prev_stage_dicts[i]
-                pos, ori = geometry.get_ground_point(last_smpl_trans[-1],last_smpl_orient[-1])
+                pos, ori = geometry.get_ground_point(last_smpl_trans[-overlap+1],last_smpl_orient[-overlap+1])
                 prev_tfm = to_homogeneous(ori,pos)
-                curr_pos, curr_ori = geometry.get_ground_point(prev_dict["smpl_trans"][overlap-1],prev_dict["smpl_orient"][overlap-1])
+                curr_pos, curr_ori = geometry.get_ground_point(prev_dict["smpl_trans"][0],prev_dict["smpl_orient"][0])
                 curr_tfm = to_homogeneous(curr_ori,curr_pos)
                 tfm = torch.matmul(prev_tfm,torch.inverse(curr_tfm))
-                curr_smpl = to_homogeneous(prev_dict["smpl_orient"][overlap-1:],prev_dict["smpl_trans"][overlap-1:])
+                curr_smpl = to_homogeneous(prev_dict["smpl_orient"],prev_dict["smpl_trans"])
                 tfmd_smpl = torch.matmul(tfm,curr_smpl)
                 
-                smpl_orient = torch.cat([smpl_orient, tfmd_smpl[1:,:3,:3]])
-                smpl_trans = torch.cat([smpl_trans,tfmd_smpl[1:,:3,3]]).clone().detach()
+                smpl_orient = torch.cat([smpl_orient, tfmd_smpl[:-overlap,:3,:3]])
+                smpl_trans = torch.cat([smpl_trans,tfmd_smpl[:-overlap,:3,3]]).clone().detach()
 
-                smpl_art_motion_vp_latent = torch.cat([smpl_art_motion_vp_latent,prev_dict["smpl_art_motion_vp_latent"][overlap:]])
-                smpl_body_pose = torch.cat([smpl_body_pose,prev_dict["smpl_body_pose"][overlap:]])
+                smpl_art_motion_vp_latent = torch.cat([smpl_art_motion_vp_latent[:-overlap],prev_dict["smpl_art_motion_vp_latent"]])
+                smpl_body_pose = torch.cat([smpl_body_pose[:-overlap],prev_dict["smpl_body_pose"]])
                 smpl_motion_latent = torch.cat([smpl_motion_latent,prev_dict["smpl_motion_latent"]])
                 
-                updated_cam_orient = [torch.matmul(x[0,overlap-1:,:3,:3],torch.inverse(tfm)[:,:3,:3]) for x in prev_dict["cam_orient"]]
-                updated_cam_position = [torch.matmul(prev_dict["cam_orient"][x][0,overlap-1:,:3,:3],torch.inverse(tfm)[:,:3,3].unsqueeze(-1)).squeeze(-1) + 
-                                            prev_dict["cam_position"][x][0,overlap-1:] for x in range(len(prev_dict["cam_position"]))]
+                updated_cam_orient = [torch.matmul(x[0,:,:3,:3],torch.inverse(tfm)[:,:3,:3]) for x in prev_dict["cam_orient"]]
+                updated_cam_position = [torch.matmul(prev_dict["cam_orient"][x][0,:,:3,:3],torch.inverse(tfm)[:,:3,3].unsqueeze(-1)).squeeze(-1) + 
+                                            prev_dict["cam_position"][x][0,:] for x in range(len(prev_dict["cam_position"]))]
                 
                 for j in range(len(cam_orient)):
                     if cam_orient[j].shape[1] != 1:
-                        cam_orient[j] = torch.cat([cam_orient[j], updated_cam_orient[j].unsqueeze(0)[:,1:]],dim=1)
-                        cam_position[j] = torch.cat([cam_position[j], updated_cam_position[j].unsqueeze(0)[:,1:]],dim=1)
+                        cam_orient[j] = torch.cat([cam_orient[j][:,:-overlap], updated_cam_orient[j].unsqueeze(0)],dim=1)
+                        cam_position[j] = torch.cat([cam_position[j][:,:-overlap], updated_cam_position[j].unsqueeze(0)],dim=1)
 
                 # save last smpl orient
                 last_smpl_orient = tfmd_smpl[:,:3,:3].clone().detach()
                 last_smpl_trans = tfmd_smpl[:,:3,3].clone().detach()
 
-                j2ds = torch.cat([j2ds,prev_dict["j2ds"].clone().detach()[:,overlap:]],dim=1)
+                j2ds = torch.cat([j2ds[:,:-overlap],prev_dict["j2ds"].clone().detach()],dim=1)
 
                 for k in range(len(full_im_paths)):
-                    full_im_paths[k] = full_im_paths[k] + prev_dict["full_im_paths"][k][overlap:]
+                    full_im_paths[k] = full_im_paths[k][:-overlap] + prev_dict["full_im_paths"][k]
                 
 
             new_stage_dicts.append({"cam_orient":cam_orient, "cam_position": cam_position,
@@ -777,7 +777,7 @@ if __name__ == "__main__":
         print("\n saving results \n")
         prev_seq_start = big_seq_start
         for i in tqdm(range(len(res_stage))):
-            save_results(res_stage[i],stage, prev_seq_start,viz=True)
+            save_results(res_stage[i],stage, prev_seq_start)
             prev_seq_start = prev_seq_start + res_stage[i]["j2ds"].shape[1] - overlap
         
 
