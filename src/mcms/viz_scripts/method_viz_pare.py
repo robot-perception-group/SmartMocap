@@ -11,11 +11,12 @@ C = bpy.context
 
 empty = D.objects.new("empty",None)
 C.scene.collection.objects.link(empty)
-cmap = cm.get_cmap('Blues')
+cmap = cm.get_cmap('viridis')
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/copenet_zLatent/0000/stage_01/_seq_start_00005.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/volley_data_teaser4/0000/stage_00/_seq_start_01910.npz")
+# data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/copenet_zLatent/0000/stage_01/_seq_start_00005.npz")
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 
@@ -40,8 +41,10 @@ elif len(data["verts"].shape) == 4:
 
 
 
-# motion_range = range(0,cam_trans.shape[2],10)
-motion_range = range(250,380,10)
+motion_range = range(0,cam_trans.shape[2],3)
+# motion_range = range(660,760,10)
+# motion_range = range(270,380,10)
+# motion_range = [4,23]
 
 
 for dat_idx in range(smpl_out.shape[0]):
@@ -52,6 +55,7 @@ for dat_idx in range(smpl_out.shape[0]):
 
         mat = bpy.data.materials.new("mat_"+str(idx))
         mat.diffuse_color = cmap(1 - (idx-motion_range[0])/(motion_range[-1]-motion_range[0]))
+        # mat.diffuse_color = cmap(0.2)
 
         smpl_mesh = D.meshes.new("smpl_mesh"+str(idx))
         smpl_obj = D.objects.new(smpl_mesh.name,smpl_mesh)
@@ -102,6 +106,42 @@ def new_plane(mylocation, mysize, myname):
     return
 
 
-for idi,i in enumerate(np.arange(-10.5,11.5)):
-    for idj,j in enumerate(np.arange(-10.5,11.5)):
-        new_plane((i,j,0),0.95,"plane_{}_{}".format(idi,idj))
+# for idi,i in enumerate(np.arange(-10.5,11.5)):
+#     for idj,j in enumerate(np.arange(-15.5,21.5)):
+#         new_plane((i,j,0),0.95,"plane_{}_{}".format(idi,idj))
+
+
+
+# set camera pose
+render_cam = [obj for obj in bpy.context.scene.objects if obj.name=="Camera"][0]
+render_cam.rotation_mode = 'XYZ'
+render_cam.location.x = -0.23
+render_cam.location.y = 6.79
+render_cam.location.z = 2.55
+render_cam.rotation_euler[0] = 75.1 * (math.pi/180.0)
+render_cam.rotation_euler[1] = 0.816 * (math.pi/180.0)
+render_cam.rotation_euler[2] = -178 * (math.pi/180.0)
+
+# delete point light
+point_light_obj = [obj for obj in bpy.context.scene.objects if obj.name=="Light"][0]
+# point_light_obj.data.energy = 20
+# point_light_obj.location.x = 0.09
+# point_light_obj.location.y = 0.865
+# point_light_obj.location.z = 0.885
+bpy.data.objects.remove(point_light_obj,do_unlink=True)
+
+# add area light
+light_data = bpy.data.lights.new(name="area_light", type='AREA')
+light_data.energy = 2000
+light_data.shape = 'RECTANGLE'
+light_data.size = 20
+light_data.size_y = 20
+
+light_obj = bpy.data.objects.new(name="area_light", object_data=light_data)
+
+bpy.context.collection.objects.link(light_obj)
+light_obj.location.x = 0
+light_obj.location.y = 0
+light_obj.location.z = 10
+
+bpy.ops.import_scene.fbx(filepath="/is/ps3/nsaini/projects/mcms/axis.fbx")

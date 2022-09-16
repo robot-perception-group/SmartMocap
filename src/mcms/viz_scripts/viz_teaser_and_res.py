@@ -11,11 +11,12 @@ C = bpy.context
 
 empty = D.objects.new("empty",None)
 C.scene.collection.objects.link(empty)
-cmap = cm.get_cmap('Blues')
+cmap = cm.get_cmap('viridis')
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/copenet_zLatent/0000/stage_01/_seq_start_00005.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/volley_data_teaser4/0000/stage_06/_seq_start_01450.npz")
+# data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/copenet_zLatent/0000/stage_01/_seq_start_00005.npz")
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 
@@ -41,7 +42,9 @@ elif len(data["verts"].shape) == 4:
 
 
 # motion_range = range(0,cam_trans.shape[2],10)
-motion_range = range(250,380,10)
+# motion_range = range(660,760,10)
+# motion_range = range(270,380,10)
+motion_range = range(50,480,10)
 
 
 for dat_idx in range(smpl_out.shape[0]):
@@ -103,5 +106,35 @@ def new_plane(mylocation, mysize, myname):
 
 
 for idi,i in enumerate(np.arange(-10.5,11.5)):
-    for idj,j in enumerate(np.arange(-10.5,11.5)):
+    for idj,j in enumerate(np.arange(-15.5,21.5)):
         new_plane((i,j,0),0.95,"plane_{}_{}".format(idi,idj))
+
+
+
+# set camera pose
+render_cam = [obj for obj in bpy.context.scene.objects if obj.name=="Camera"][0]
+render_cam.rotation_mode = 'XYZ'
+render_cam.location.x = 1.04
+render_cam.location.y = -18.92
+render_cam.location.z = 10.378
+render_cam.rotation_euler[0] = 63.1 * (math.pi/180.0)
+render_cam.rotation_euler[1] = 0.696 * (math.pi/180.0)
+render_cam.rotation_euler[2] = 0.13 * (math.pi/180.0)
+
+# delete point light
+point_light_obj = [obj for obj in bpy.context.scene.objects if obj.name=="Light"][0]
+bpy.data.objects.remove(point_light_obj,do_unlink=True)
+
+# add area light
+light_data = bpy.data.lights.new(name="area_light", type='AREA')
+light_data.energy = 2000
+light_data.shape = 'RECTANGLE'
+light_data.size = 20
+light_data.size_y = 20
+
+light_obj = bpy.data.objects.new(name="area_light", object_data=light_data)
+
+bpy.context.collection.objects.link(light_obj)
+light_obj.location.x = 0
+light_obj.location.y = 0
+light_obj.location.z = 10

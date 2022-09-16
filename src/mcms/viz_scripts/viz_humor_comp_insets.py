@@ -11,11 +11,12 @@ C = bpy.context
 
 empty = D.objects.new("empty",None)
 C.scene.collection.objects.link(empty)
-cmap = cm.get_cmap('Blues')
+cmap = [cm.get_cmap('Greens'),cm.get_cmap('Blues'),cm.get_cmap('Reds')]
 # empty.rotation_euler[0] = math.radians(90)
 # empty.location[2] = 1.16
 
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/copenet_zLatent/0000/stage_01/_seq_start_00005.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/First_moving_other_cams/rich_first_cam_zLatent/0000/gt_and_res_strt_off_10.npz")
+data_humor = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/First_moving_other_cams/rich_first_cam_zLatent/0000/gt_and_humor_res_strt_off_10.npz")
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 
@@ -29,10 +30,10 @@ if len(data["verts"].shape) == 3:
     except:
         cams_available = False
 elif len(data["verts"].shape) == 4:
-    smpl_out = data["verts"]
+    smpl_out = np.concatenate([data["verts"],data_humor["verts"][1:]])
     try:
-        cam_trans = data["cam_trans"]
-        cam_rots = data["cam_rots"]
+        cam_trans = np.concatenate([data["cam_trans"],data_humor["cam_trans"][1:]])
+        cam_rots = np.concatenate([data["cam_rots"],data_humor["cam_rots"]])
         num_cams = cam_trans.shape[1]
         cams_available = True
     except:
@@ -40,23 +41,24 @@ elif len(data["verts"].shape) == 4:
 
 
 
-# motion_range = range(0,cam_trans.shape[2],10)
-motion_range = range(250,380,10)
+# motion_range = range(0,cam_trans.shape[2],2)
+# motion_range = range(400,420,2)
+motion_range = range(200,270,7)
 
 
 for dat_idx in range(smpl_out.shape[0]):
 
-    for idx in motion_range:
+    for en_idx,idx in enumerate(motion_range):
 
-        offsets = np.array([0.05*idx,0,0])
+        offsets = np.array([0.5*en_idx + [6,0,12][dat_idx] + 10,-3,0])
 
         mat = bpy.data.materials.new("mat_"+str(idx))
-        mat.diffuse_color = cmap(1 - (idx-motion_range[0])/(motion_range[-1]-motion_range[0]))
+        mat.diffuse_color = cmap[dat_idx](1 - 0.5*idx/cam_trans.shape[2])
 
         smpl_mesh = D.meshes.new("smpl_mesh"+str(idx))
         smpl_obj = D.objects.new(smpl_mesh.name,smpl_mesh)
-        # smpl_mesh.from_pydata(smpl_out[dat_idx,idx] + offsets,[],list(bm.f.detach().numpy()))
-        smpl_mesh.from_pydata(smpl_out[dat_idx,idx],[],list(bm.f.detach().numpy()))
+        smpl_mesh.from_pydata(smpl_out[dat_idx,idx] + offsets,[],list(bm.f.detach().numpy()))
+        # smpl_mesh.from_pydata(smpl_out[dat_idx,idx],[],list(bm.f.detach().numpy()))
         smpl_mesh.materials.append(mat)
         smpl_obj.show_transparent = True
         C.scene.collection.objects.link(smpl_obj)
@@ -102,6 +104,34 @@ def new_plane(mylocation, mysize, myname):
     return
 
 
-for idi,i in enumerate(np.arange(-10.5,11.5)):
-    for idj,j in enumerate(np.arange(-10.5,11.5)):
+for idi,i in enumerate(np.arange(-1.5,31.5)):
+    for idj,j in enumerate(np.arange(-7.5,1.5)):
         new_plane((i,j,0),0.95,"plane_{}_{}".format(idi,idj))
+
+# set camera pose
+render_cam = [obj for obj in bpy.context.scene.objects if obj.name=="Camera"][0]
+render_cam.rotation_mode = 'XYZ'
+render_cam.location.x = 14.05
+render_cam.location.y = -16.45
+render_cam.location.z = 2.478
+render_cam.rotation_euler[0] = 81.5 * (math.pi/180.0)
+render_cam.rotation_euler[1] = 0.831 * (math.pi/180.0)
+render_cam.rotation_euler[2] = -0.776 * (math.pi/180.0)
+
+# delete point light
+point_light_obj = [obj for obj in bpy.context.scene.objects if obj.name=="Light"][0]
+bpy.data.objects.remove(point_light_obj,do_unlink=True)
+
+# add area light
+light_data = bpy.data.lights.new(name="area_light", type='AREA')
+light_data.energy = 5000
+light_data.shape = 'RECTANGLE'
+light_data.size = 30
+light_data.size_y = 11
+
+light_obj = bpy.data.objects.new(name="area_light", object_data=light_data)
+
+bpy.context.collection.objects.link(light_obj)
+light_obj.location.x = 15.26
+light_obj.location.y = -2.57
+light_obj.location.z = 6.55

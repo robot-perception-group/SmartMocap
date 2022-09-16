@@ -203,9 +203,12 @@ def load_batch_wth_pare_init():
             smpl_orient = smpl_orient.clone().detach()
 
             pare_init_state.append({"cam_orient":cam_orient, "cam_position": cam_position,
-                        "smpl_trans":smpl_trans, 
+                        "smpl_trans":smpl_trans,
+                        "nmg_overlap": overlap,
+                        "smpl_motion_latent":torch.zeros(1,1024).to(device).clone().detach().cpu(),
                         "smpl_orient": smpl_orient, "smpl_shape": smpl_shape, 
-                        "smpl_art_motion_vp_latent":smpl_art_motion_vp_latent_init, "j2ds":j2ds.clone().detach(), 
+                        "smpl_art_motion_vp_latent":smpl_art_motion_vp_latent_init, "j2ds":j2ds.clone().detach(), "proj_j3ds":j2ds.clone().detach(),
+                        "smpl_body_pose": vp_model.decode(smpl_art_motion_vp_latent_init)["pose_body"].clone().detach(), 
                         "full_im_paths": batch["full_im_paths"]})
 
     return pare_init_state
@@ -733,7 +736,7 @@ def save_results(stage_dict,stage,seq_start, prefix="", viz=False):
                 for joint in range(j2ds.shape[2]-2):
                     rend_ims = rend_ims*255
                     cv2.circle(rend_ims,(int(j2ds[cam,s,joint,0]),
-                                int(j2ds[cam,s,joint,1])),10*viz_dwnsample,cmap[joint],-1)
+                                int(j2ds[cam,s,joint,1])),5*viz_dwnsample,cmap[joint],-1)
                     # cv2.circle(rend_ims,(int(stage_dict["proj_j3ds"][cam,s,joint,0]),
                     #             int(stage_dict["proj_j3ds"][cam,s,joint,1])),2.5*viz_dwnsample,(0,0,0),-1)
                     rend_ims = rend_ims/255
@@ -769,6 +772,15 @@ if __name__ == "__main__":
         iterations = config["n_optim_iters"][0]
         pare_init_state = load_batch_wth_pare_init()
 
+        # saving init results with stage number 99
+        prev_seq_start = big_seq_start
+        for i in tqdm(range(len(pare_init_state))):
+            save_results(pare_init_state[i],99, prev_seq_start)
+            prev_seq_start = prev_seq_start + pare_init_state[i]["j2ds"].shape[1] - overlap
+        stitched_res = stitch(pare_init_state,len(pare_init_state))
+        prev_seq_start = big_seq_start
+        save_results(stitched_res[0],99, prev_seq_start)
+        
         # optimize(pare_init_state[0],device,iterations)
         res_stage = Parallel(n_jobs=-1)(delayed(optimize)(pare_init_state[i],device,
                         iterations) for i in tqdm(range(len(pare_init_state))))

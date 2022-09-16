@@ -37,11 +37,17 @@ class Renderer:
         rend_imgs = make_grid(rend_imgs, nrow)
         return rend_imgs
 
-    def __call__(self, vertices, camera_translation, camera_rotation, image, intr = None, faces = None):
-        material = pyrender.MetallicRoughnessMaterial(
-            metallicFactor=0.2,
-            alphaMode='OPAQUE',
-            baseColorFactor=(0.8, 0.3, 0.3, 1.0))
+    def __call__(self, vertices, camera_translation, camera_rotation, image, intr = None, faces = None,color=None):
+        if color is None:
+            material = pyrender.MetallicRoughnessMaterial(
+                metallicFactor=0.2,
+                alphaMode='BLEND',
+                baseColorFactor=(0.8, 0.3, 0.3, 1.0))
+        else:
+            material = pyrender.MetallicRoughnessMaterial(
+                metallicFactor=0.2,
+                alphaMode='OPAQUE',
+                baseColorFactor=color)
 
         if faces is not None:
             self.faces = faces
