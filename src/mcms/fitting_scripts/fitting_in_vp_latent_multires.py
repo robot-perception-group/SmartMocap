@@ -1,6 +1,4 @@
 import os
-from sqlite3 import PARSE_COLNAMES
-from warnings import catch_warnings
 os.environ["PYOPENGL_PLATFORM"] = 'egl'
 import yaml
 import torch
@@ -13,7 +11,7 @@ import sys
 from mcms.dsets import h36m, copenet_real, rich
 from savitr_pe.datasets import savitr_dataset
 from torch.utils.data import DataLoader
-from nmg.models import nmg
+from mop.models import mop
 import numpy as np
 from tqdm import tqdm, trange
 from mcms.utils.utils import nmg2smpl, smpl2nmg
@@ -96,7 +94,7 @@ smpl = BodyModel(bm_fname=hparams["model_smpl_neutral_path"]).to(device)
 
 # Motion VAE
 nmg_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
-mvae_model = nmg.nmg.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],map_location=device).to(device)
+mvae_model = mop.mop.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],map_location=device).to(device)
 mean_std = np.load(hparams["model_mvae_mean_std_path"])
 mvae_mean = torch.from_numpy(mean_std["mean"]).float().to(device)
 mvae_std = torch.from_numpy(mean_std["std"]).float().to(device)

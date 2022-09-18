@@ -232,9 +232,9 @@ def new_plane(mylocation, mysize, myname):
     return
 
 
-for idi,i in enumerate(np.arange(-5.5,5.5)):
-    for idj,j in enumerate(np.arange(-5.5,5.5)):
-        new_plane((i,j,0),0.95,"plane_{}_{}".format(idi,idj))
+# for idi,i in enumerate(np.arange(-5.5,5.5)):
+#     for idj,j in enumerate(np.arange(-5.5,5.5)):
+#         new_plane((i,j,0),0.95,"plane_{}_{}".format(idi,idj))
 
 # set camera pose
 render_cam = [obj for obj in bpy.context.scene.objects if obj.name=="Camera"][0]
