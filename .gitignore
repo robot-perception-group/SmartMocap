@@ -52,7 +52,7 @@ mop_logs/
 *.gif
 
 # exclude the teaser
-!resources/teaser.png
+!resources/teaser.jpg
 
 # numpy files
 *.npy

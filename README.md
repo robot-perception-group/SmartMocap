@@ -1,5 +1,5 @@
 # SmartMocap
-![](./resources/teaser.png)
+![](./resources/teaser.jpg)
 ## Prepare the environment
 Create and activate smartmocap conda env.
 ```
