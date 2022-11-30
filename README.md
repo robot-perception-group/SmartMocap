@@ -1,5 +1,5 @@
 # SmartMocap
-
+![](./resources/teaser.png)
 ## Prepare the environment
 Create and activate smartmocap conda env.
 ```
@@ -45,6 +45,3 @@ Results will be in the folder `Smartmocap_logs/fittings/name_of_the_trial`.
 
 ## Visualization
 Coming soon
-
-
-
