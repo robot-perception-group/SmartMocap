@@ -1,4 +1,4 @@
-name: mcms
+name: smartmocap
 channels:
   - anaconda
   - pytorch
@@ -272,4 +272,4 @@ dependencies:
     - trimesh==3.9.42
     - yacs==0.1.8
     - yapf==0.32.0
-prefix: /home/nsaini/miniconda3/envs/mcms
+prefix: /home/nsaini/miniconda3/envs/smartmocap

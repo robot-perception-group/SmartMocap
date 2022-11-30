@@ -1,0 +1,78 @@
+batch_size: 1
+big_seq_end: 400
+big_seq_start: 5
+bm_fname: # Fill the body model path
+cams_used:
+- 0
+- 1
+data_path: # Fill the data path
+device: cpu
+dset: copenet_real
+gmcclure_sigma: 40
+init_seq_len: 25
+loss_2d_weight:
+- 1
+- 1
+- 1
+loss_betas_weight:
+- 100
+- 100
+- 100
+loss_cam_gp_weight:
+- 1.0e4
+- 1.0e4
+- 1.0e4
+loss_cams_orient_weight:
+- 1
+- 1
+- 1
+loss_cams_position_weight:
+- 100000
+- 100000
+- 100000
+loss_cont_weight:
+- 100
+- 100
+- 100
+loss_human_gp_weight:
+- 1.0e4
+- 1.0e4
+- 1.0e4
+loss_j3d_smooth_weight:
+- 1
+- 1
+- 0.5
+loss_smpl_in_front_weight:
+- 0
+- 0
+- 0
+loss_vp_weight:
+- 10
+- 10
+- 10
+loss_z_weight:
+- 10
+- 10
+- 10
+lr:
+- 0.01
+- 0.001
+- 0.001
+mo_vae_ckpt_path: # Fill the MOP checkpoint file path
+n_optim_iters:
+- - 2000
+  - 3000
+  - 4000
+- - 0
+  - 0
+  - 2000
+nmg_seq_len: 25
+optimize_intr: false
+orient_changing_cams:
+- 1
+overlap: 10
+position_changing_cams:
+- 1
+seq_no: '0'
+stitch_len: -1
+use_pare_init: true

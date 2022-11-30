@@ -10,10 +10,10 @@ from torchvision.utils import make_grid
 from mcms.dsets import h36m, copenet_real, rich
 from savitr_pe.datasets import savitr_dataset
 from torch.utils.data import DataLoader
-from nmg.models import nmg
+from mop.models import mop
 import numpy as np
 from tqdm import tqdm, trange
-from mcms.utils.utils import nmg2smpl, smpl2nmg
+from mcms.utils.utils import mop2smpl, smpl2mop
 from smplx.body_models import create
 from human_body_prior.body_model.body_model import BodyModel
 from human_body_prior.models.vposer_model import VPoser
@@ -56,8 +56,8 @@ smpl = BodyModel(bm_fname=hparams["model_smpl_neutral_path"])
 smpl2 = create("/home/nsaini/Datasets/smpl_models/smpl/SMPL_NEUTRAL.pkl",batch_size=25)
 
 # Motion VAE
-nmg_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
-mvae_model = nmg.nmg.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],nmg_hparams)
+mop_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
+mvae_model = mop.mop.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],mop_hparams)
 mean_std = np.load(hparams["model_mvae_mean_std_path"])
 mvae_mean = torch.from_numpy(mean_std["mean"]).float()
 mvae_std = torch.from_numpy(mean_std["std"]).float()
@@ -170,7 +170,7 @@ with trange(big_seq_start,big_seq_end,fps_scl*(seq_len-overlap)) as seq_t:
                 smpl_shape = smpl_shape.detach().requires_grad_(True)
                 # Decode smpl motion using motion vae
                 mvae_model.eval()
-                smpl_motion_init = nmg2smpl((mvae_model.decode(torch.zeros(1,1024))*mvae_std + mvae_mean).reshape(seq_len,22,9),smpl)
+                smpl_motion_init = mop2smpl((mvae_model.decode(torch.zeros(1,1024))*mvae_std + mvae_mean).reshape(seq_len,22,9),smpl)
                 smpl_trans_rf = smpl_motion_init[1:,:3].detach().requires_grad_(True)
                 smpl_trans_ff = smpl_motion_init[:1,:3].detach().requires_grad_(True)
                 smpl_orient = p3d_rt.axis_angle_to_matrix(smpl_motion_init[:,3:6])
@@ -224,8 +224,8 @@ with trange(big_seq_start,big_seq_end,fps_scl*(seq_len-overlap)) as seq_t:
                                         p3d_rt.matrix_to_axis_angle(p3d_rt.rotation_6d_to_matrix(smpl_art_motion_interm))],dim=1).reshape(seq_len,69)
                 # Decode smpl motion using motion vae
                 mvae_model.eval()
-                nmg_repr = (smpl2nmg(smpl_motion,smpl).reshape(-1,seq_len,22*9) - mvae_mean)/mvae_std
-                smpl_motion_latent = mvae_model.encode(nmg_repr)[:,0]
+                mop_repr = (smpl2mop(smpl_motion,smpl).reshape(-1,seq_len,22*9) - mvae_mean)/mvae_std
+                smpl_motion_latent = mvae_model.encode(mop_repr)[:,0]
 
                 # SMPL fwd pass
                 # smpl_out = smpl.forward(root_orient = smpl_motion[:,3:6],
@@ -587,8 +587,8 @@ with trange(n_optim_iters) as t:
             canonical_smpl_motion = torch.cat([canonical_root_pose[:,:3,3],
                                     p3d_rt.matrix_to_axis_angle(canonical_root_pose[:,:3,:3]),
                                     smpl_motion[strt_idx:strt_idx+25,6:]],dim=1)
-            nmg_repr = (smpl2nmg(canonical_smpl_motion,smpl).reshape(-1,25,22*9) - mvae_mean)/mvae_std
-            smpl_motion_latent.append(mvae_model.encode(nmg_repr)[:,0])
+            mop_repr = (smpl2mop(canonical_smpl_motion,smpl).reshape(-1,25,22*9) - mvae_mean)/mvae_std
+            smpl_motion_latent.append(mvae_model.encode(mop_repr)[:,0])
 
         # SMPL fwd pass
         smpl_out = smpl.forward(root_orient = smpl_motion[:,3:6],

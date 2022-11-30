@@ -1,15 +1,21 @@
+# path to mop .ckpt file 
 mo_vae_ckpt_path : "/is/ps3/nsaini/projects/mcms/mcms_logs/2022_03_07/v000_/checkpoints/epoch:2099-step:125999.ckpt"
+# path to SMPL body model .pkl file
 bm_fname: "/home/nsaini/Datasets/smpl_models/smpl/SMPL_NEUTRAL.pkl"
+# type of dataset (one of {rich, copenet_real, savitr})
 dset : "rich"
+
 # data_path : "/ps/project/datasets/AirCap_ICCV19/opencam/VolleyDay"
 # data_path : "/ps/project/datasets/AirCap_ICCV19/opencam/20220417/Niz_dance"
 # data_path : "/ps/project/datasets/AirCap_ICCV19/RICH_IPMAN/val/2021-06-15_Multi_IOI_ID_00228_Yoga1"
 # data_path : "/ps/project/datasets/AirCap_ICCV19/RICH_IPMAN/val/2021-06-15_Multi_IOI_ID_03588_Yoga1"
-data_path : "/ps/project/datasets/AirCap_ICCV19/RICH_IPMAN/test/2021-06-15_Multi_IOI_ID_00186_Yoga1"
 # data_path : "/ps/project/datasets/AirCap_ICCV19/copenet_data_local_machine/copenet_data"
 
+# path to the dataset root directory
+data_path : "/ps/project/datasets/AirCap_ICCV19/RICH_IPMAN/test/2021-06-15_Multi_IOI_ID_00186_Yoga1"
+
 batch_size : 1
-nmg_seq_len : 25
+mop_seq_len : 25
 loss_2d_weight : [1,1,1]
 loss_z_weight : [10,10,10]
 loss_j3d_smooth_weight: [1,1,0.1]
@@ -34,9 +40,13 @@ overlap : 2
 init_seq_len : 25
 stitch_len : -1
 
+# List of cameras to be used
 cams_used : [0,1,2,3,4,5,6,7]
+# List of cameras with dynamic position
 position_changing_cams : [7]
+# List of cameras with dynamic orientation
 orient_changing_cams : [7]
+# If optimize for intrinsics
 optimize_intr : false
-
+# Device (keep it cpu)
 device: "cpu"

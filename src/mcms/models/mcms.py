@@ -14,12 +14,12 @@ from pytorch3d.transforms import rotation_conversions as p3d_rt
 from ..utils.geometry import batch_rodrigues, perspective_projection, estimate_translation, rot6d_to_rotmat
 from argparse import ArgumentParser
 from torch.utils.data import DataLoader
-from ..utils.utils import nmg2smpl, smpl2nmg 
+from ..utils.utils import mop2smpl, smpl2mop 
 from ..utils.geometry import perspective_projection
 from ..utils.renderer import Renderer
 from . import backbone
 from ..dsets import h36m
-from nmg.models import nmg
+from mop.models import mop
 import yaml
 import imageio
 from koila import lazy
@@ -105,8 +105,8 @@ class mcms(pl.LightningModule):
         for p in self.vp_model.parameters():
             p.requires_grad = False
         if hparams["model_zspace"].lower() == "motion_vae":
-            nmg_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
-            self.mvae_model = nmg.nmg.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],nmg_hparams)
+            mop_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
+            self.mvae_model = mop.mop.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],mop_hparams)
             mean_std = np.load(self.hparams["model_mvae_mean_std_path"])
             self.register_buffer("mvae_mean", torch.from_numpy(mean_std["mean"]).float())
             self.register_buffer("mvae_std", torch.from_numpy(mean_std["std"]).float())
@@ -182,8 +182,8 @@ class mcms(pl.LightningModule):
             pred_pose = self.mvae_model.decode(pred_motion_z)
             # Normalization
             pred_pose_unnorm = pred_pose*self.mvae_std + self.mvae_mean
-            # nmg representation to smpl
-            pred_pose_smpl = nmg2smpl(pred_pose_unnorm.reshape(batch_size*seq_size,22,9),self.smpl).reshape(batch_size,seq_size,-1)
+            # mop representation to smpl
+            pred_pose_smpl = mop2smpl(pred_pose_unnorm.reshape(batch_size*seq_size,22,9),self.smpl).reshape(batch_size,seq_size,-1)
             
         return cam_poses, pred_pose_smpl, pred_betas, pred_motion_z
 
@@ -228,7 +228,7 @@ class mcms(pl.LightningModule):
         #                 self.init_orient.expand(batch_size,num_cams,seq_size,-1)],3)
         # pred_pose = self.mvae_model.decode(2*torch.randn(1,1024).type_as(pred_motion_z))
         # pred_pose_unnorm = pred_pose*self.mvae_std + self.mvae_mean
-        # pred_pose_smpl = nmg2smpl(pred_pose_unnorm.reshape(batch_size*seq_size,22,9),self.smpl).reshape(batch_size,seq_size,-1)
+        # pred_pose_smpl = mop2smpl(pred_pose_unnorm.reshape(batch_size*seq_size,22,9),self.smpl).reshape(batch_size,seq_size,-1)
         # pred_betas = self.init_shape.expand(batch_size,-1)
         # pred_pose_smpl[:,:,6:] = moshed_gt
         ###############################################

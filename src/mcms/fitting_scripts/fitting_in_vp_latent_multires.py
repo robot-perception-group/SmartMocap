@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from mop.models import mop
 import numpy as np
 from tqdm import tqdm, trange
-from mcms.utils.utils import nmg2smpl, smpl2nmg
+from mcms.utils.utils import mop2smpl, smpl2mop
 from smplx.body_models import create
 from human_body_prior.body_model.body_model import BodyModel
 from human_body_prior.models.vposer_model import VPoser
@@ -31,6 +31,10 @@ from joblib import wrap_non_picklable_objects
 import pickle as pkl
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import matplotlib.pyplot as plt
+import pathlib
+
+root_path = os.path.join(pathlib.Path(__file__).parent.absolute(),"..","..","..")
+
 
 cmap_set1 = plt.get_cmap("Set1",9)
 cmap_set2 = plt.get_cmap("Set2",8)
@@ -43,12 +47,12 @@ seq_no = sys.argv[2]
 
 resume = False
 # check if the trial exists
-if os.path.exists(os.path.join("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings",trial_name)):
-    config = yaml.safe_load(open(os.path.join("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings",
+if os.path.exists(os.path.join(root_path,"smartmocap_logs/fittings",trial_name)):
+    config = yaml.safe_load(open(os.path.join(root_path,"smartmocap_logs/fittings",
                 trial_name,
                 "{:04d}".format(int(seq_no)),
                 "config.yml")))
-    stage_dirs = sorted(glob.glob(os.path.join("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings",
+    stage_dirs = sorted(glob.glob(os.path.join(root_path,"smartmocap_logs/fittings",
                 trial_name,
                 "{:04d}".format(int(seq_no)),
                 "stage_*")))
@@ -56,7 +60,7 @@ if os.path.exists(os.path.join("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings"
         resume = True
 else:
     print("\n Trial doesn't exists, starting new trial")
-    config = yaml.safe_load(open("/is/ps3/nsaini/projects/mcms/src/mcms/fitting_scripts/fit_config.yml"))
+    config = yaml.safe_load(open(os.path.join(root_path,"src/mcms/fitting_scripts/fit_config.yml")))
 
 config["trial_name"] = trial_name
 config["seq_no"] = seq_no
@@ -66,7 +70,7 @@ if config["dset"].lower() != "h36m":
 
 # config parameters
 batch_size = config['batch_size']
-nmg_seq_len = config["nmg_seq_len"]
+mop_seq_len = config["mop_seq_len"]
 init_seq_len = config["init_seq_len"]
 loss_2d_weight = config["loss_2d_weight"]
 loss_z_weight = config["loss_z_weight"]
@@ -93,7 +97,7 @@ device = torch.device(config["device"])
 smpl = BodyModel(bm_fname=hparams["model_smpl_neutral_path"]).to(device)
 
 # Motion VAE
-nmg_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
+mop_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
 mvae_model = mop.mop.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],map_location=device).to(device)
 mean_std = np.load(hparams["model_mvae_mean_std_path"])
 mvae_mean = torch.from_numpy(mean_std["mean"]).float().to(device)
@@ -132,10 +136,10 @@ renderer = [Renderer(img_res=[np.ceil(res[0]),np.ceil(res[1])]) for res in im_re
 
 # make dir for seq_no
 if dset.lower() == "h36m":
-    os.makedirs("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}".format(config["trial_name"],seq_no),exist_ok=True)
+    os.makedirs(os.path.join(root_path,"smartmocap_logs/fittings/{}/{:04d}".format(config["trial_name"],seq_no)),exist_ok=True)
 else:
     seq_no = 0
-    os.makedirs("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}".format(config["trial_name"],seq_no),exist_ok=True)
+    os.makedirs(os.path.join(root_path,"smartmocap_logs/fittings/{}/{:04d}".format(config["trial_name"],seq_no)),exist_ok=True)
 
 if dset.lower() == "h36m":
     batch = ds.__getitem__(seq_no,big_seq_start)
@@ -148,7 +152,7 @@ cam_intr = torch.from_numpy(batch["cam_intr"]).float().to(device)
 
 def load_batch_wth_pare_init():
     # dump yaml file
-    yaml.safe_dump(config,open("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/config.yml".format(config["trial_name"],seq_no),"w"))
+    yaml.safe_dump(config,open(os.path.join(root_path,"smartmocap_logs/fittings/{}/{:04d}/config.yml".format(config["trial_name"],seq_no)),"w"))
 
     # init_cam_position = []
     # init_cam_orient = []
@@ -182,7 +186,7 @@ def load_batch_wth_pare_init():
             smpl_shape = torch.zeros(10).unsqueeze(0).to(device)
 
             mvae_model.eval()
-            smpl_motion_init = nmg2smpl((mvae_model.decode(torch.zeros(1,1024).to(device))*mvae_std + mvae_mean).reshape(nmg_seq_len,22,9),smpl)
+            smpl_motion_init = mop2smpl((mvae_model.decode(torch.zeros(1,1024).to(device))*mvae_std + mvae_mean).reshape(mop_seq_len,22,9),smpl)
             smpl_trans = smpl_motion_init[:,:3].clone().detach()
             smpl_orient = p3d_rt.axis_angle_to_matrix(smpl_motion_init[:,3:6])
             smpl_art_motion_vp_latent_init = torch.cat([vp_model.encode(batch["pare_poses"][j, :21].reshape(1, 63).to(device)).mean for j in range(init_seq_len)]).clone().detach()
@@ -202,7 +206,7 @@ def load_batch_wth_pare_init():
 
             pare_init_state.append({"cam_orient":cam_orient, "cam_position": cam_position,
                         "smpl_trans":smpl_trans,
-                        "nmg_overlap": overlap,
+                        "mop_overlap": overlap,
                         "smpl_motion_latent":torch.zeros(1,1024).to(device).clone().detach().cpu(),
                         "smpl_orient": smpl_orient, "smpl_shape": smpl_shape, 
                         "smpl_art_motion_vp_latent":smpl_art_motion_vp_latent_init, "j2ds":j2ds.clone().detach(), "proj_j3ds":j2ds.clone().detach(),
@@ -212,18 +216,18 @@ def load_batch_wth_pare_init():
     return pare_init_state
 
 
-def motion2nmg(strt_idx,smpl_trans,smpl_orient,smpl_motion):
+def motion2mop(strt_idx,smpl_trans,smpl_orient,smpl_motion):
     global smpl
     curr_pos, curr_ori = geometry.get_ground_point(smpl_trans[strt_idx],p3d_rt.rotation_6d_to_matrix(smpl_orient[strt_idx]))
     curr_tfm = to_homogeneous(curr_ori,curr_pos)
-    curr_root_pose = to_homogeneous(p3d_rt.rotation_6d_to_matrix(smpl_orient[strt_idx:strt_idx+nmg_seq_len]),smpl_trans[strt_idx:strt_idx+25])
+    curr_root_pose = to_homogeneous(p3d_rt.rotation_6d_to_matrix(smpl_orient[strt_idx:strt_idx+mop_seq_len]),smpl_trans[strt_idx:strt_idx+25])
     canonical_root_pose = torch.matmul(torch.inverse(curr_tfm),curr_root_pose)
     canonical_smpl_motion = torch.cat([canonical_root_pose[:,:3,3],
                             p3d_rt.matrix_to_axis_angle(canonical_root_pose[:,:3,:3]),
-                            smpl_motion[strt_idx:strt_idx+nmg_seq_len,6:]],dim=1)
-    nmg_repr = (smpl2nmg(canonical_smpl_motion,smpl).reshape(-1,25,22*9) - mvae_mean)/mvae_std
+                            smpl_motion[strt_idx:strt_idx+mop_seq_len,6:]],dim=1)
+    mop_repr = (smpl2mop(canonical_smpl_motion,smpl).reshape(-1,25,22*9) - mvae_mean)/mvae_std
 
-    return nmg_repr
+    return mop_repr
 
 
 def optimize(params,device, iters):
@@ -287,22 +291,22 @@ def optimize(params,device, iters):
                                     smpl_art_motion_interm],dim=1).reshape(curr_seq_len,69)
             # Decode smpl motion using motion vae
             mvae_model.eval()
-            nmg_repr_list = Parallel(n_jobs=-1)(delayed(motion2nmg)(strt_idx,smpl_trans,smpl_orient,smpl_motion) 
-                            for strt_idx in range(0,curr_seq_len-nmg_seq_len+1,nmg_seq_len-overlap))
-            # nmg_repr_list = []
-            # for strt_idx in range(0,curr_seq_len-nmg_seq_len+1,2):
+            mop_repr_list = Parallel(n_jobs=-1)(delayed(motion2mop)(strt_idx,smpl_trans,smpl_orient,smpl_motion) 
+                            for strt_idx in range(0,curr_seq_len-mop_seq_len+1,mop_seq_len-overlap))
+            # mop_repr_list = []
+            # for strt_idx in range(0,curr_seq_len-mop_seq_len+1,2):
             #     curr_pos, curr_ori = geometry.get_ground_point(smpl_trans[strt_idx],p3d_rt.rotation_6d_to_matrix(smpl_orient[strt_idx]))
             #     curr_tfm = to_homogeneous(curr_ori,curr_pos)
-            #     curr_root_pose = to_homogeneous(p3d_rt.rotation_6d_to_matrix(smpl_orient[strt_idx:strt_idx+nmg_seq_len]),smpl_trans[strt_idx:strt_idx+25])
+            #     curr_root_pose = to_homogeneous(p3d_rt.rotation_6d_to_matrix(smpl_orient[strt_idx:strt_idx+mop_seq_len]),smpl_trans[strt_idx:strt_idx+25])
             #     canonical_root_pose = torch.matmul(torch.inverse(curr_tfm),curr_root_pose)
             #     canonical_smpl_motion = torch.cat([canonical_root_pose[:,:3,3],
             #                             p3d_rt.matrix_to_axis_angle(canonical_root_pose[:,:3,:3]),
-            #                             smpl_motion[strt_idx:strt_idx+nmg_seq_len,6:]],dim=1)
-            #     nmg_repr = (smpl2nmg(canonical_smpl_motion,smpl).reshape(-1,25,22*9) - mvae_mean)/mvae_std
-            #     nmg_repr_list.append(nmg_repr)
+            #                             smpl_motion[strt_idx:strt_idx+mop_seq_len,6:]],dim=1)
+            #     mop_repr = (smpl2mop(canonical_smpl_motion,smpl).reshape(-1,25,22*9) - mvae_mean)/mvae_std
+            #     mop_repr_list.append(mop_repr)
             
-            nmg_repr = torch.cat(nmg_repr_list,dim=0)
-            smpl_motion_latent = mvae_model.encode(nmg_repr)[:,0]
+            mop_repr = torch.cat(mop_repr_list,dim=0)
+            smpl_motion_latent = mvae_model.encode(mop_repr)[:,0]
 
             # SMPL fwd pass
             smpl_out = smpl.forward(root_orient = smpl_motion[:,3:6],
@@ -417,7 +421,7 @@ def optimize(params,device, iters):
     # import ipdb;ipdb.set_trace()
     return {"cam_orient":[p3d_rt.rotation_6d_to_matrix(x).clone().detach().cpu() for x in cam_orient], "cam_position": [x.clone().detach().cpu() for x in cam_position],
                         "smpl_motion_latent": smpl_motion_latent.clone().detach().cpu(),
-                        "nmg_overlap": overlap,
+                        "mop_overlap": overlap,
                         "smpl_trans":smpl_trans.clone().detach().cpu(), "proj_j3ds":proj_j3ds.clone().detach().cpu(),
                         "smpl_orient": p3d_rt.rotation_6d_to_matrix(smpl_orient).cpu(), "smpl_shape": smpl_shape.clone().detach().cpu(),
                         "smpl_body_pose": smpl_motion[:,6:].clone().detach().cpu(),
@@ -425,7 +429,7 @@ def optimize(params,device, iters):
                         "full_im_paths": params["full_im_paths"]}
 
 
-def nmg_latent_optimize(params,device, iters):
+def mop_latent_optimize(params,device, iters):
     
     global smpl
     global vp_model
@@ -462,7 +466,7 @@ def nmg_latent_optimize(params,device, iters):
             smpl_motion_decoded = mvae_model.decode(smpl_motion_latent)
             smpl_motion_unnorm = smpl_motion_decoded*mvae_std + mvae_mean
             
-            smpl_motion = nmg2smpl(smpl_motion_unnorm.reshape(-1,22,9),smpl).reshape(smpl_motion_unnorm.shape[0],nmg_seq_len,-1)
+            smpl_motion = mop2smpl(smpl_motion_unnorm.reshape(-1,22,9),smpl).reshape(smpl_motion_unnorm.shape[0],mop_seq_len,-1)
 
             # transform seq chunks
             cont_seq = [smpl_motion[0].clone()]
@@ -599,7 +603,7 @@ def nmg_latent_optimize(params,device, iters):
     # import ipdb;ipdb.set_trace()
     return {"cam_orient":[p3d_rt.rotation_6d_to_matrix(x).clone().detach().cpu() for x in cam_orient], "cam_position": [x.clone().detach().cpu() for x in cam_position],
                         "smpl_motion_latent": smpl_motion_latent.clone().detach().cpu(),
-                        "nmg_overlap": overlap,
+                        "mop_overlap": overlap,
                         "smpl_trans":cont_seq_no_overlap[:,:3].clone().detach().cpu(), "proj_j3ds":proj_j3ds.clone().detach().cpu(),
                         "smpl_orient": p3d_rt.axis_angle_to_matrix(cont_seq_no_overlap[:,3:6]).cpu(), "smpl_shape": smpl_shape.clone().detach().cpu(),
                         "smpl_body_pose": cont_seq_no_overlap[:,6:].clone().detach().cpu(),
@@ -671,7 +675,7 @@ def stitch(prev_stage_dicts,stitch_num):
             new_stage_dicts.append({"cam_orient":cam_orient, "cam_position": cam_position,
                             "smpl_trans":smpl_trans.clone().detach(),
                             "smpl_motion_latent": smpl_motion_latent.clone().detach(),
-                            "nmg_overlap": overlap,
+                            "mop_overlap": overlap,
                             "smpl_orient": smpl_orient, "smpl_shape": smpl_shape, 
                             "smpl_body_pose": smpl_body_pose.clone().detach(),
                             "smpl_art_motion_vp_latent":smpl_art_motion_vp_latent.clone().detach(), "j2ds":j2ds.clone().detach(),
@@ -683,8 +687,8 @@ def stitch(prev_stage_dicts,stitch_num):
 
 def save_results(stage_dict,stage,seq_start, prefix="", viz=False):
 
-    os.makedirs("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/stage_{:02d}/{}_seq_start_{:05d}".format(config["trial_name"],
-                                seq_no,stage,prefix,seq_start),exist_ok=True)
+    os.makedirs(os.path.join(root_path,"smartmocap_logs/fittings/{}/{:04d}/stage_{:02d}/{}_seq_start_{:05d}".format(config["trial_name"],
+                                seq_no,stage,prefix,seq_start)),exist_ok=True)
 
     j2ds = stage_dict["j2ds"]
     full_images_paths = stage_dict["full_im_paths"]
@@ -719,8 +723,8 @@ def save_results(stage_dict,stage,seq_start, prefix="", viz=False):
 
     if viz:
         for cam in tqdm(range(num_cams)):
-            os.makedirs("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/stage_{:02d}/{}_seq_start_{:05d}/cam_{:02d}".format(config["trial_name"],
-                                    seq_no,stage,prefix,seq_start,cam),exist_ok=True)
+            os.makedirs(os.path.join(root_path,"smartmocap_logs/fittings/{}/{:04d}/stage_{:02d}/{}_seq_start_{:05d}/cam_{:02d}".format(config["trial_name"],
+                                    seq_no,stage,prefix,seq_start,cam)),exist_ok=True)
             for s in range(curr_seq_len):
                 im = cv2.imread(full_images_paths[cam][s])[:im_res[cam][1],:im_res[cam][0],::-1]/255.
                 temp_intr = cam_intr[cam].clone().detach().cpu().numpy()
@@ -739,15 +743,15 @@ def save_results(stage_dict,stage,seq_start, prefix="", viz=False):
                     #             int(stage_dict["proj_j3ds"][cam,s,joint,1])),2.5*viz_dwnsample,(0,0,0),-1)
                     rend_ims = rend_ims/255
                 
-                cv2.imwrite("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/stage_{:02d}/{}_seq_start_{:05d}/cam_{:02d}/{:05d}.png".format(config["trial_name"],
-                                    seq_no,stage,prefix,seq_start,cam,seq_start+s),rend_ims[::viz_dwnsample,::viz_dwnsample,::-1]*255)
+                cv2.imwrite(os.path.join(os.path.join(root_path,"smartmocap_logs/fittings/{}/{:04d}/stage_{:02d}/{}_seq_start_{:05d}/cam_{:02d}/{:05d}.png".format(config["trial_name"],
+                                    seq_no,stage,prefix,seq_start,cam,seq_start+s))),rend_ims[::viz_dwnsample,::viz_dwnsample,::-1]*255)
 
     if prefix == "":
-        pkl.dump(stage_dict,open("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/stage_{:02d}/{}_seq_start_{:05d}.pkl".format(config["trial_name"],
-                                seq_no,stage,prefix,seq_start),"wb"))
+        pkl.dump(stage_dict,open(os.path.join(root_path,"smartmocap_logs/fittings/{}/{:04d}/stage_{:02d}/{}_seq_start_{:05d}.pkl".format(config["trial_name"],
+                                seq_no,stage,prefix,seq_start)),"wb"))
 
-    np.savez("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/{}/{:04d}/stage_{:02d}/{}_seq_start_{:05d}".format(config["trial_name"],
-                                seq_no,stage,prefix,seq_start),
+    np.savez(os.path.join(root_path,"smartmocap_logs/fittings/{}/{:04d}/stage_{:02d}/{}_seq_start_{:05d}".format(config["trial_name"],
+                                seq_no,stage,prefix,seq_start)),
         verts=smpl_out_v.clone().detach().cpu().numpy(),
         cam_trans=cam_poses[:,:,:3,3].clone().detach().cpu().numpy(),
         cam_rots=p3d_rt.matrix_to_quaternion(cam_poses[:,:,:3,:3]).clone().detach().cpu().numpy())
@@ -815,7 +819,7 @@ if __name__ == "__main__":
 
         stage = stage+1
 
-        # nmg_latent_optimize(stitched_res[-1],device,iterations)
+        # mop_latent_optimize(stitched_res[-1],device,iterations)
         res_stage = Parallel(n_jobs=-1)(delayed(optimize)(stitched_res[i],device,iterations) for i in tqdm(range(len(stitched_res))))
 
         print("\n saving results \n")

@@ -12,10 +12,10 @@ hparams = yaml.safe_load(open("/".join(ckpt_path.split("/")[:-2])+"/hparams.yaml
 
 from mcms.dsets import h36m, copenet_real
 from torch.utils.data import DataLoader
-from nmg.models import nmg
+from mop.models import mop
 import numpy as np
 from tqdm import tqdm, trange
-from mcms.utils.utils import nmg2smpl
+from mcms.utils.utils import mop2smpl
 from human_body_prior.body_model.body_model import BodyModel
 from mcms.utils.geometry import perspective_projection
 from mcms.utils.renderer import Renderer
@@ -49,8 +49,8 @@ overlap = 20
 smpl = BodyModel(bm_fname=hparams["model_smpl_neutral_path"])
 
 # Motion VAE
-nmg_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
-mvae_model = nmg.nmg.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],nmg_hparams)
+mop_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
+mvae_model = mop.mop.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],mop_hparams)
 mean_std = np.load(hparams["model_mvae_mean_std_path"])
 mvae_mean = torch.from_numpy(mean_std["mean"]).float()
 mvae_std = torch.from_numpy(mean_std["std"]).float()
@@ -117,7 +117,7 @@ with trange(big_seq_start,big_seq_end,fps_scl*(seq_len-overlap)) as seq_t:
                 mvae_model.eval()
                 smpl_motion_decoded = mvae_model.decode(smpl_motion_latent)
                 smpl_motion_unnorm = smpl_motion_decoded*mvae_std + mvae_mean
-                smpl_motion = nmg2smpl(smpl_motion_unnorm.reshape(batch_size*seq_len,22,9),smpl).reshape(batch_size,seq_len,-1)
+                smpl_motion = mop2smpl(smpl_motion_unnorm.reshape(batch_size*seq_len,22,9),smpl).reshape(batch_size,seq_len,-1)
 
                 # SMPL fwd pass
                 smpl_motion = smpl_motion.reshape(-1,smpl_motion.shape[-1])
@@ -323,7 +323,7 @@ with trange(n_optim_iters) as t:
         mvae_model.eval()
         smpl_motion_decoded = mvae_model.decode(smpl_motion_latent)
         smpl_motion_unnorm = smpl_motion_decoded*mvae_std + mvae_mean
-        smpl_motion = nmg2smpl(smpl_motion_unnorm.reshape(batch_size*seq_len,22,9),smpl).reshape(batch_size,seq_len,-1)
+        smpl_motion = mop2smpl(smpl_motion_unnorm.reshape(batch_size*seq_len,22,9),smpl).reshape(batch_size,seq_len,-1)
 
         # transform seq chunks
         cont_seq = [smpl_motion[0].clone()]

@@ -30,7 +30,7 @@ MANIFEST
 # Data and logging directory
 data/
 lightning_logs/
-mcms_logs/
+smartmocap_logs/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -43,7 +43,7 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # training logs
-nmg_logs/
+mop_logs/
 
 # visualizations files
 *.html

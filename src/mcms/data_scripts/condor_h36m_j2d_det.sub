@@ -1,4 +1,4 @@
-executable = /home/nsaini/miniconda3/envs/nmg/bin/python
+executable = /home/nsaini/miniconda3/envs/mop/bin/python
 arguments = /is/ps3/nsaini/projects/mcms/src/mcms/data_scripts/h36m_j2d_det_cluster.py $(Process)
 error = /is/cluster/nsaini/cluster_logs/error.$(Process).err
 output = /is/cluster/nsaini/cluster_logs/output.$(Process).out

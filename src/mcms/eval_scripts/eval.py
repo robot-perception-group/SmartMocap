@@ -9,8 +9,8 @@ from human_body_prior.models.vposer_model import VPoser
 from human_body_prior.tools.model_loader import load_model
 from pytorch3d.transforms import rotation_conversions as p3d_rt
 from pytorch3d import transforms as p3dt
-from nmg.models import nmg
-from mcms.utils.utils import nmg2smpl, smpl2nmg
+from mop.models import mop
+from mcms.utils.utils import mop2smpl, smpl2mop
 from mcms.utils import geometry
 import yaml
 import torch
@@ -41,7 +41,7 @@ res = pkl.load(open(final_stage_res[0],"rb"))
 # Params
 config = yaml.safe_load(open(ospj(res_dir,"config.yml")))
 batch_size = config["batch_size"]
-nmg_seq_len = config["nmg_seq_len"]
+mop_seq_len = config["mop_seq_len"]
 n_optim_iters = config["n_optim_iters"]
 dset = config["dset"]
 seq_no = config["seq_no"]
@@ -59,8 +59,8 @@ vp_model = load_model(hparams["model_vposer_path"], model_code=VPoser,remove_wor
 vp_model.eval()
 
 # MVAE
-nmg_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
-mvae_model = nmg.nmg.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],map_location=device).to(device)
+mop_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
+mvae_model = mop.mop.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],map_location=device).to(device)
 mean_std = np.load(hparams["model_mvae_mean_std_path"])
 mvae_mean = torch.from_numpy(mean_std["mean"]).float().to(device)
 mvae_std = torch.from_numpy(mean_std["std"]).float().to(device)
@@ -109,7 +109,7 @@ else:
 # mvae_model.eval()
 # smpl_motion_decoded = mvae_model.decode(res["smpl_motion_latent"])
 # smpl_motion_unnorm = smpl_motion_decoded*mvae_std + mvae_mean
-# smpl_motion = nmg2smpl(smpl_motion_unnorm.reshape(-1,22,9),smpl).reshape(smpl_motion_unnorm.shape[0],nmg_seq_len,-1)
+# smpl_motion = mop2smpl(smpl_motion_unnorm.reshape(-1,22,9),smpl).reshape(smpl_motion_unnorm.shape[0],mop_seq_len,-1)
 
 # # transform seq chunks
 # cont_seq = [smpl_motion[0].clone()]
