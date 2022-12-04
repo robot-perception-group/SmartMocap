@@ -1,5 +1,5 @@
 import os
-os.environ["PYOPENGL_PLATFORM"] = 'egl'
+os.environ["PYOPENGL_PLATFORM"] = 'osmesa'
 import yaml
 import torch
 from pytorch3d.transforms import rotation_conversions as p3d_rt
@@ -43,7 +43,7 @@ cmap = [np.array(cmap_set1(x)[:3])*255 for x in range(9)] + [np.array(cmap_set2(
 
 
 trial_name = sys.argv[1]
-seq_no = sys.argv[2]
+seq_no = 0
 
 resume = False
 # check if the trial exists
@@ -94,17 +94,21 @@ hparams = yaml.safe_load(open("/".join(config["mo_vae_ckpt_path"].split("/")[:-2
 device = torch.device(config["device"])
 
 # SMPL
-smpl = BodyModel(bm_fname=hparams["model_smpl_neutral_path"]).to(device)
+smpl = BodyModel(bm_fname=config["bm_fname"]).to(device)
+
+#
+mo_vae_ckpt_path = os.path.join(config["mop_data"],"checkpoints","epoch=869-step=275789.ckpt")
+mvae_mean_std_path = os.path.join(config["mop_data"],"amass_humor_all_mean_std.npz")
 
 # Motion VAE
-mop_hparams = yaml.safe_load(open("/".join(hparams["train_motion_vae_ckpt_path"].split("/")[:-2])+"/hparams.yaml"))
-mvae_model = mop.mop.load_from_checkpoint(hparams["train_motion_vae_ckpt_path"],map_location=device).to(device)
-mean_std = np.load(hparams["model_mvae_mean_std_path"])
+mop_hparams = yaml.safe_load(open("/".join(mo_vae_ckpt_path.split("/")[:-2])+"/hparams.yaml"))
+mvae_model = mop.mop.load_from_checkpoint(mo_vae_ckpt_path,map_location=device).to(device)
+mean_std = np.load(config["mvae_mean_std_path"])
 mvae_mean = torch.from_numpy(mean_std["mean"]).float().to(device)
 mvae_std = torch.from_numpy(mean_std["std"]).float().to(device)
 
 # vposer model
-vp_model = load_model(hparams["model_vposer_path"], model_code=VPoser,remove_words_in_model_weights="vp_model.",map_location=device)[0].to(device)
+vp_model = load_model(config["vposer_path"], model_code=VPoser,remove_words_in_model_weights="vp_model.",map_location=device)[0].to(device)
 vp_model.eval()
 
 # Dataloader

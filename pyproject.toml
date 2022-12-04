@@ -1,0 +1,40 @@
+[tool.poetry]
+name = "mcms"
+version = "0.1.0"
+description = "SmartMocap repository"
+authors = ["Nitin Saini <nitin.saini@tuebingen.mpg.de>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+torch = "^1.13.0"
+torchvision = "^0.14.0"
+pytorch-lightning = "^1.8.3.post1"
+matplotlib = "^3.6.2"
+numpy = "^1.23.5"
+ipython = "^8.7.0"
+opencv-python = "^4.6.0.66"
+pytorch3d = "0.3.0"
+imageio = "^2.22.4"
+h5py = "^3.7.0"
+torchgeometry = "^0.1.2"
+joblib = "^1.2.0"
+scipy = "^1.9.3"
+savitr-pe = {git = "https://github.com/nitin-ppnp/savitr-pe.git", rev = "mcms"}
+pandas = "^1.5.2"
+mop = {git = "https://github.com/robot-perception-group/mop.git"}
+scikit-learn = "^1.1.3"
+smplx = {git = "https://github.com/nitin-ppnp/smplx.git"}
+omegaconf = "^2.2.3"
+loguru = "^0.6.0"
+pyrender = "^0.1.45"
+tensorboard = "^2.11.0"
+ipdb = "^0.13.9"
+human-body-prior = {git = "https://github.com/nitin-ppnp/human_body_prior.git"}
+dotmap = "^1.3.30"
+pyopengl = {git = "https://github.com/mmatl/pyopengl.git"}
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

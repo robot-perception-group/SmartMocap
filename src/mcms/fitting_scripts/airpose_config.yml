@@ -58,7 +58,7 @@ lr:
 - 0.01
 - 0.001
 - 0.001
-mo_vae_ckpt_path: # Fill the MOP checkpoint file path
+mop_data: # Fill the MOP data directory path
 n_optim_iters:
 - - 2000
   - 3000

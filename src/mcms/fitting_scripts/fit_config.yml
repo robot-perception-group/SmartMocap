@@ -1,7 +1,10 @@
-# path to mop .ckpt file 
-mo_vae_ckpt_path : "/is/ps3/nsaini/projects/mcms/mcms_logs/2022_03_07/v000_/checkpoints/epoch:2099-step:125999.ckpt"
-# path to SMPL body model .pkl file
-bm_fname: "/home/nsaini/Datasets/smpl_models/smpl/SMPL_NEUTRAL.pkl"
+# path to mop data directory
+mop_data : "mop_data/checkpoints/epoch=869-step=275789.ckpt"
+
+# path to neutral SMPL body model .npz file
+bm_fname : "/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz"
+# bm_fname : "/home/nsaini/Datasets/smpl_models/smpl/SMPL_NEUTRAL.pkl"
+
 # type of dataset (one of {rich, copenet_real, savitr})
 dset : "rich"
 
@@ -13,6 +16,9 @@ dset : "rich"
 
 # path to the dataset root directory
 data_path : "/ps/project/datasets/AirCap_ICCV19/RICH_IPMAN/test/2021-06-15_Multi_IOI_ID_00186_Yoga1"
+
+# vposer model v2.0 path
+vposer_path : "/ps/scratch/common/vposer/V02_05"
 
 batch_size : 1
 mop_seq_len : 25
