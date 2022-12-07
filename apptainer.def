@@ -8,7 +8,7 @@ From: ubuntu:bionic
     
 
 %environment
-    export PATH=$PATH:/root/.local/bin
+    export PATH=$PATH:/poetry/bin
     export FORCE_CUDA=1
     
 
@@ -41,6 +41,8 @@ From: ubuntu:bionic
     apt install -y python3.8-venv
     apt install -y freeglut3 freeglut3-dev
     apt install -y libpython3.8-dev
+    apt-get install -y llvm-6.0 llvm-6.0-dev llvm-6.0-tools
+
     apt install -y ffmpeg libsm6 libxext6 libgl1-mesa-glx
     wget https://github.com/mmatl/travis_debs/raw/master/xenial/mesa_18.3.3-0.deb
     dpkg -i ./mesa_18.3.3-0.deb || true
@@ -48,6 +50,7 @@ From: ubuntu:bionic
 
     apt-get update
 
-    curl -sSL https://install.python-poetry.org | python3 -
-    poetry config virtualenvs.in-project true
+    mkdir poetry
+    curl -sSL https://install.python-poetry.org | POETRY_HOME=/poetry python3 -
+    # poetry config virtualenvs.in-project true
     # pip install --no-cache-dir poetry==1.1.12 cleo tomlkit
