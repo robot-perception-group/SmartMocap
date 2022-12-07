@@ -52,5 +52,5 @@ From: ubuntu:bionic
 
     mkdir poetry
     curl -sSL https://install.python-poetry.org | POETRY_HOME=/poetry python3 -
-    # poetry config virtualenvs.in-project true
+    poetry config virtualenvs.in-project true
     # pip install --no-cache-dir poetry==1.1.12 cleo tomlkit
