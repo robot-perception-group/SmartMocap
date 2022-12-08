@@ -27,7 +27,7 @@ Download the dataset you want to use and extract the tar file.
 
 
 ### Download the pretrained MOP model
-Download the MOP pretrained checkpoint file [here](https://download.is.tue.mpg.de/download.php?domain=smartmocap&resume=1&sfile=Smartmocap_mop_ckpt_release.tar.gz)
+Download the MOP pretrained checkpoint file [here](https://download.is.tue.mpg.de/download.php?domain=smartmocap&resume=1&sfile=mop_data.tar.gz)
 
 ### Download SMPL model
 Download SMPL models from [https://smpl.is.tue.mpg.de/](https://smpl.is.tue.mpg.de/)
