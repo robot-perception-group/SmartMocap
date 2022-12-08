@@ -23,6 +23,7 @@ poetry install
 Download the dataset you want to use and extract the tar file.
 - [SmartMocap data](https://download.is.tue.mpg.de/download.php?domain=smartmocap&resume=1&sfile=VolleyDay.tar.gz)
 - [AirPose data](https://download.is.tue.mpg.de/download.php?domain=smartmocap&resume=1&sfile=copenet_data.tar.gz)
+- [RICH data](https://download.is.tue.mpg.de/download.php?domain=smartmocap&resume=1&sfile=rich_data.tar.gz)
 
 
 ### Download the pretrained MOP model
