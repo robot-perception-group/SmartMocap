@@ -41,6 +41,7 @@ From: ubuntu:bionic
     apt install -y python3.8-venv
     apt install -y freeglut3 freeglut3-dev
     apt install -y libpython3.8-dev
+    apt install -y python3-opengl
     apt-get install -y llvm-6.0 llvm-6.0-dev llvm-6.0-tools
 
     apt install -y ffmpeg libsm6 libxext6 libgl1-mesa-glx

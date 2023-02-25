@@ -29,6 +29,7 @@ if len(data["verts"].shape) == 3:
         cams_available = True
     except:
         cams_available = False
+
 elif len(data["verts"].shape) == 4:
     smpl_out = np.concatenate([data["verts"],data_humor["verts"][1:]])
     try:
@@ -39,9 +40,8 @@ elif len(data["verts"].shape) == 4:
     except:
         cams_available = False
 
+    motion_range = range(0,data["verts"].shape[1],10)
 
-
-motion_range = range(0,cam_trans.shape[2],10)
 
 
 for dat_idx in range(smpl_out.shape[0]):
@@ -51,7 +51,7 @@ for dat_idx in range(smpl_out.shape[0]):
         offsets = np.array([0.25*en_idx,[-3,0,-6][dat_idx],0])
 
         mat = bpy.data.materials.new("mat_"+str(idx))
-        mat.diffuse_color = cmap[dat_idx](1 - 0.5*idx/cam_trans.shape[2])
+        mat.diffuse_color = cmap[dat_idx](1 - 0.5*idx/motion_range.stop)
 
         smpl_mesh = D.meshes.new("smpl_mesh"+str(idx))
         smpl_obj = D.objects.new(smpl_mesh.name,smpl_mesh)

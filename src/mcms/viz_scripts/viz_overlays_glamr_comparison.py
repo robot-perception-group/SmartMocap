@@ -15,10 +15,20 @@ from mcms.utils.renderer import Renderer
 from human_body_prior.body_model.body_model import BodyModel
 import matplotlib.pyplot as plt
 from torchvision.utils import make_grid
+from glob import glob
+
+def gammaCorrection(src, gamma):
+    invGamma = 1 / gamma
+
+    table = [((i / 255) ** invGamma) * 255 for i in range(256)]
+    table = np.array(table, np.uint8)
+
+    return cv2.LUT(src, table)
 
 # res_file = "/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/copenet_zLatent/0000/stage_01/_seq_start_00005.pkl"
 # vizdir = "copenet_overlays"
 res_file = "/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/all_res_wth_sigma/rich_upto_cam1/0000/stage_01/_seq_start_00006.pkl"
+glamr_overlay_dir = "/is/ps3/nsaini/projects/mcms/mcms_logs/paper_mat/rebuttal_mat/Rich_video_overlays_and_comparison/GLAMR"
 vizdir = "rich_cam1_overlays"
 
 res_dir = "/".join(res_file.split("/")[:-3])
@@ -76,6 +86,11 @@ def viz_results(stage_dict):
     full_images_paths = stage_dict["full_im_paths"]
     curr_seq_len = j2ds.shape[1]
 
+    # get num images in glamr res dir
+    glamr_res_ims = sorted(glob(glamr_overlay_dir+"/*"))
+    
+    assert len(glamr_res_ims) == curr_seq_len - 3       # 1 initial and 2 last frames of smartmocap are removed
+
     smpl_trans = stage_dict["smpl_trans"]
     smpl_orient = stage_dict["smpl_orient"]
     smpl_art_motion_vp_latent = stage_dict["smpl_art_motion_vp_latent"]
@@ -103,21 +118,24 @@ def viz_results(stage_dict):
                                 for x in smpl_motion_list]
     smpl_out_v = torch.cat(smpl_out_v,dim=0)
 
-    t_range = range(0,curr_seq_len,10)
+    t_range = range(1,curr_seq_len,10)
     orig_ims_list = []
     rend_ims_list = []
+    glamr_ims_list = []
     cat_ims_list = []
-    for cam in tqdm(range(num_cams)):
+    for cam in tqdm([0]):       # using only cam0 for glamr comparison
         orig_ims = []
         rend_ims = []
+        glamr_ims = []
         cat_ims = []
         for s in tqdm(t_range):
-            im = cv2.imread(full_images_paths[cam][s])[:im_res[cam][1],:im_res[cam][0],::-1]/255.
+            im = gammaCorrection(cv2.imread(full_images_paths[cam][s])[:im_res[cam][1],:im_res[cam][0],::-1],2)/255.
+            glamr_im = gammaCorrection(cv2.imread(glamr_res_ims[s-1])[:im_res[cam][1],:im_res[cam][0],::-1],2)/255.        # s-1 because first second frame of smartmocap is frist frame of glamr
             temp_intr = cam_intr[cam].clone().detach().cpu().numpy()
             temp_v = smpl_out_v.view(curr_seq_len,6890,3)[s].clone().detach().cpu().numpy()
-            bb_min = j2ds[cam,s,j2ds[cam,s,:,2]!=0,:2].min(dim=0).values.int() - 50
+            bb_min = j2ds[cam,s,j2ds[cam,s,:,2]!=0,:2].min(dim=0).values.int() - 500
             bb_min[bb_min<0] = 0
-            bb_max = j2ds[cam,s,j2ds[cam,s,:,2]!=0,:2].max(dim=0).values.int() + 50
+            bb_max = j2ds[cam,s,j2ds[cam,s,:,2]!=0,:2].max(dim=0).values.int() + 500
             
             rend_im = renderer[cam](temp_v,
                                 cam_ext[cam,s,:3,3].clone().detach().cpu().numpy(),
@@ -126,20 +144,24 @@ def viz_results(stage_dict):
                                 faces=smpl.f.clone().detach().cpu().numpy(),color=(0.3,0.8,0.8,0.5))
             rend_im = rend_im[bb_min[1] : bb_max[1], bb_min[0] : bb_max[0]]
             im = im[bb_min[1] : bb_max[1], bb_min[0] : bb_max[0]]
+            glamr_im = glamr_im[bb_min[1] : bb_max[1], bb_min[0] : bb_max[0]]
             scale = 300.0/rend_im.shape[0]
             orig_ims.append(cv2.copyMakeBorder(cv2.resize(im,(int(im.shape[1]*scale),300)),1,2,1,2,cv2.BORDER_CONSTANT,value=[0,0,0]))
             rend_ims.append(cv2.copyMakeBorder(cv2.resize(rend_im,(int(rend_im.shape[1]*scale),300)),1,2,1,2,cv2.BORDER_CONSTANT,value=[0,0,0]))
-            cat_ims.append(np.concatenate([orig_ims[-1],rend_ims[-1]],axis=0))
+            glamr_ims.append(cv2.copyMakeBorder(cv2.resize(glamr_im,(int(glamr_im.shape[1]*scale),300)),1,2,1,2,cv2.BORDER_CONSTANT,value=[0,0,0]))
+            cat_ims.append(np.concatenate([orig_ims[-1],glamr_ims[-1],rend_ims[-1]],axis=1))
+
         
         orig_ims_list.append(orig_ims)
         rend_ims_list.append(rend_ims)
+        glamr_ims_list.append(glamr_ims)
         cat_ims_list.append(cat_ims)
     os.makedirs("/is/ps3/nsaini/projects/mcms/mcms_logs/paper_mat/{}".format(vizdir),exist_ok=True)
-    import ipdb;ipdb.set_trace()
-    for i in range(len(cat_ims_list[0])):
-        cv2.imwrite("/is/ps3/nsaini/projects/mcms/mcms_logs/paper_mat/{}/{:04d}.png".format(vizdir,t_range[i]),
-        cv2.copyMakeBorder(np.concatenate([x[i] for x in cat_ims_list],axis=1),2,2,2,2,cv2.BORDER_CONSTANT,value=[255,255,255])[:,:,::-1]*255)
     
+    for i in range(len(cat_ims_list[0])):
+        # cv2.imwrite("/is/ps3/nsaini/projects/mcms/mcms_logs/paper_mat/{}/{:04d}.png".format(vizdir,t_range[i]),
+        # cv2.copyMakeBorder(np.concatenate([x[i] for x in cat_ims_list],axis=1),2,2,2,2,cv2.BORDER_CONSTANT,value=[255,255,255])[:,:,::-1]*255)
+        cv2.imwrite("/is/ps3/nsaini/projects/mcms/mcms_logs/paper_mat/{}/{:04d}.png".format(vizdir,t_range[i]),cat_ims_list[0][i][:,:,::-1]*255)
                 
 # max_width = np.max([x.shape[1] for x in orig_ims])
 # orig_ims = [torch.from_numpy(cv2.copyMakeBorder(x,0,0,(max_width-x.shape[1])//2,max_width-x.shape[1]-(max_width-x.shape[1])//2,cv2.BORDER_CONSTANT,value=[255,255,255])).permute(2,0,1) for x in orig_ims]

@@ -768,6 +768,7 @@ if __name__ == "__main__":
     if resume:
         print("\n Resuming from checkpoint \n")
         # get existsing stages
+        import ipdb;ipdb.set_trace()
         stage = sorted([int(x.split("_")[-1]) for x in stage_dirs])[-1]
         fitter_res_stage = []
         for stage_dir in stage_dirs:

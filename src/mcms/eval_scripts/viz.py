@@ -21,8 +21,12 @@ C.scene.collection.objects.link(empty)
 # 414
 # data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/copenet_7/0000/stage_02/_seq_start_03000.npz")
 # 599
-data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/First_moving_other_cams/rich_first_cam_zLatent7_2/0000/gt_and_res_strt_off_10.npz")
+# data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/First_moving_other_cams/rich_first_cam_zLatent7_2/0000/gt_and_res_strt_off_10.npz")
 
+# data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/all_res_wth_sigma/rich_upto_cam1/0000/gt_and_glamr_res_strt_off_10.npz")
+
+# data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/volley_data_teaser4/0000/stage_00/stitched_seq_start_01772.npz")
+data = np.load("/is/ps3/nsaini/projects/mcms/mcms_logs/fittings/all_res_wth_sigma/rich_upto_cam1/0000/gt_and_glamr_res_strt_off_10.npz")
 
 bm = BodyModel("/home/nsaini/Datasets/smpl_models/smplh/neutral/model.npz")
 
