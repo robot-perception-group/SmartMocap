@@ -54,4 +54,4 @@ python src/mcms/fitting_scripts/fitting_in_vp_latent_multires.py name_of_the_tri
 Results will be in the folder `Smartmocap_logs/fittings/name_of_the_trial`.
 
 ## Visualization
-Coming soon
+Use the scripts `src/mcms/eval_scripts/viz.py` and `src/mcms/eval_scripts/viz_static.py`. Edit the `data` variable in these scripts to pointing to the `.npz` file generated in the logs directory above. 
